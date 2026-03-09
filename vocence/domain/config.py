@@ -26,11 +26,16 @@ _load_env()
 # NETUID / SUBNET_ID: subnet id (default 102 mainnet; for testnet set NETWORK=test and NETUID=XXX in .env)
 CHAIN_NETWORK = os.environ.get("CHAIN_NETWORK") or os.environ.get("NETWORK", "finney")
 SUBNET_ID = int(os.environ.get("SUBNET_ID") or os.environ.get("NETUID", "102"))
-CYCLE_LENGTH = int(os.environ.get("CYCLE_LENGTH", "30"))  # Set weights every 30 blocks (~6 minutes)
+CYCLE_LENGTH = int(os.environ.get("CYCLE_LENGTH", "150"))  # Set weights every 150 blocks (~30 minutes)
 QUERY_TIMEOUT = int(os.environ.get("QUERY_TIMEOUT", "300"))
 
 # Assessment configuration
-ASSESSMENT_INTERVAL = int(os.environ.get("ASSESSMENT_INTERVAL", "600"))  # Time between sample generation rounds (default 10 minutes)
+ASSESSMENT_INTERVAL = int(os.environ.get("ASSESSMENT_INTERVAL", "600"))  # Legacy; sample timing is block-based when subtensor is used
+# Block-based sample slots: validators send tasks every SAMPLE_SLOT_INTERVAL_BLOCKS; offset staggers 5 validators (id 0->0, 1->30, 2->60, 3->90, 4->120).
+VALIDATOR_ID = int(os.environ.get("VALIDATOR_ID", "1"))  # 0–4 for staggered slots; default 1
+SAMPLE_SLOT_INTERVAL_BLOCKS = int(os.environ.get("SAMPLE_SLOT_INTERVAL_BLOCKS", "150"))
+# Derived: block % INTERVAL == this value → run sample round
+SAMPLE_SLOT_OFFSET_BLOCKS = (VALIDATOR_ID % 5) * 30  # 0, 30, 60, 90, or 120
 MIN_EVALS_TO_COMPETE = int(os.environ.get("MIN_EVALS_TO_COMPETE", "36"))  # Miner must have more than 35 evals in the scoring window to be eligible
 THRESHOLD_MARGIN = float(os.environ.get("THRESHOLD_MARGIN", "0.05"))
 # Most recent N evaluations used for scoring (validator S3 + owner metrics). Default 50.
@@ -50,9 +55,14 @@ HOTKEY_NAME = os.environ.get("HOTKEY_NAME", "default")
 # Validator: two credential sets — corpus (read owner's bucket via owner-provided sub_key)
 # and validator's own (samples bucket, DB-related storage).
 #
+# Validator identity: used to build the validator's samples bucket name (e.g. audio-samples-rt21, audio-samples-yuma).
+# Set VALIDATOR_NAME in .env (e.g. rt21, yuma); validators typically set this.
+VALIDATOR_NAME = (os.environ.get("VALIDATOR_NAME", "default").strip().lower().replace("_", "-") or "default")
+
 # Bucket names (shared)
 AUDIO_SOURCE_BUCKET = os.environ.get("HIPPIUS_AUDIO_SOURCE_BUCKET", "audio-corpus")  # Corpus (owner writes, validators read)
-AUDIO_SAMPLES_BUCKET = os.environ.get("HIPPIUS_AUDIO_SAMPLES_BUCKET", "audio-samples")  # Validator's own bucket
+# Validator's own bucket: derived from VALIDATOR_NAME unless overridden (e.g. audio-samples-rt21, audio-samples-yuma).
+AUDIO_SAMPLES_BUCKET = os.environ.get("HIPPIUS_AUDIO_SAMPLES_BUCKET") or f"audio-samples-{VALIDATOR_NAME}"
 
 # Owner: single set for corpus bucket (used by source-downloader CLI)
 HIPPIUS_OWNER_ACCESS_KEY = os.environ.get("HIPPIUS_OWNER_ACCESS_KEY") or os.environ.get("HIPPIUS_ACCESS_KEY", "")
@@ -96,7 +106,10 @@ MAX_AUDIO_HISTORY = int(os.environ.get("MAX_AUDIO_HISTORY", "50"))
 
 # Chute endpoint resolution
 CHUTE_INFO_CACHE_TTL = int(os.environ.get("CHUTE_INFO_CACHE_TTL", "300"))  # 5 minutes
-MAX_PARALLEL_MINERS = int(os.environ.get("MAX_PARALLEL_MINERS", "5"))
+# Max concurrent requests to miners' chutes per round. Raise for more miners (e.g. 20); lower if you hit rate limits.
+MAX_PARALLEL_MINERS = int(os.environ.get("MAX_PARALLEL_MINERS", "20"))
+# Max concurrent OpenAI evaluations (forced-choice) per round. Lower if you hit OpenAI rate limits.
+MAX_PARALLEL_EVALS = int(os.environ.get("MAX_PARALLEL_EVALS", "4"))
 
 # Validator: optional local copy of metadata before uploading to Hippius (default: disabled)
 # Only when VALIDATOR_SAVE_LOCAL_SAMPLES is true AND VALIDATOR_LOCAL_SAMPLES_DIR is set do we create the dir and save.

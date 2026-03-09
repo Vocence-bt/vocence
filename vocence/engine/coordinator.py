@@ -33,7 +33,9 @@ from vocence.domain.config import (
     CHAIN_NETWORK,
     AUDIO_SOURCE_BUCKET,
     AUDIO_SAMPLES_BUCKET,
-    ASSESSMENT_INTERVAL,
+    VALIDATOR_ID,
+    SAMPLE_SLOT_INTERVAL_BLOCKS,
+    SAMPLE_SLOT_OFFSET_BLOCKS,
 )
 from vocence.shared.logging import emit_log, print_header
 from vocence.domain.entities import ParticipantInfo
@@ -248,7 +250,7 @@ async def main() -> None:
     emit_log(f"Network: {CHAIN_NETWORK}", "info")
     emit_log(f"Subnet ID: {SUBNET_ID}", "info")
     emit_log(f"Cycle length: {CYCLE_LENGTH} blocks (~{CYCLE_LENGTH * 12}s)", "info")
-    emit_log(f"Sample interval: {ASSESSMENT_INTERVAL}s", "info")
+    emit_log(f"Sample slots: every {SAMPLE_SLOT_INTERVAL_BLOCKS} blocks at offset {SAMPLE_SLOT_OFFSET_BLOCKS} (validator_id={VALIDATOR_ID})", "info")
     emit_log(f"Corpus bucket (read): s3://{AUDIO_SOURCE_BUCKET}", "info")
     emit_log(f"Samples bucket (own): s3://{AUDIO_SAMPLES_BUCKET}", "info")
     emit_log(f"Min evals to compete: {MIN_EVALS_TO_COMPETE}", "info")
@@ -256,7 +258,9 @@ async def main() -> None:
     emit_log(f"Max evals for scoring (recent window): {MAX_EVALS_FOR_SCORING}", "info")
     
     emit_log("Starting sample generation loop in background...", "start")
-    generator_task = asyncio.create_task(generate_samples_continuously(corpus_client, validator_client, openai_client))
+    generator_task = asyncio.create_task(
+        generate_samples_continuously(corpus_client, validator_client, openai_client, subtensor.get_current_block)
+    )
     
     def handle_generator_exception(task: asyncio.Task) -> None:
         """Handle exceptions from the background generator task."""

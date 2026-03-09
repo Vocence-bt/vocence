@@ -15,7 +15,7 @@ import random
 import asyncio
 import time
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict, Any, Awaitable, Callable
 
 import aiohttp
 from minio import Minio
@@ -23,7 +23,6 @@ from openai import AsyncOpenAI
 
 from vocence.domain.config import (
     API_URL,
-    ASSESSMENT_INTERVAL,
     CHUTES_AUTH_KEY,
     AUDIO_SOURCE_BUCKET,
     AUDIO_SAMPLES_BUCKET,
@@ -34,11 +33,15 @@ from vocence.domain.config import (
     USED_AUDIO_FILES,
     MAX_AUDIO_HISTORY,
     MAX_PARALLEL_MINERS,
+    MAX_PARALLEL_EVALS,
     QUERY_TIMEOUT,
     COLDKEY_NAME,
     HOTKEY_NAME,
     VALIDATOR_SAVE_LOCAL_SAMPLES,
     VALIDATOR_LOCAL_SAMPLES_DIR,
+    VALIDATOR_ID,
+    SAMPLE_SLOT_INTERVAL_BLOCKS,
+    SAMPLE_SLOT_OFFSET_BLOCKS,
 )
 from vocence.shared.logging import emit_log, print_header
 from vocence.adapters.storage import ensure_bucket_available, upload_sample_data
@@ -46,6 +49,9 @@ from vocence.adapters.media import get_audio_duration
 from vocence.pipeline.evaluation import generate_description_async, forced_choice_assessment_async
 from vocence.adapters.chutes import fetch_chute_details, construct_chute_endpoint
 from vocence.domain.entities import ParticipantInfo
+
+# ~1 block every 12s on typical chains; used when waiting for next block
+SECONDS_PER_BLOCK = 12
 
 
 async def submit_sample_to_api(
@@ -344,23 +350,41 @@ async def generate_samples_continuously(
     corpus_client: Minio,
     validator_client: Minio,
     openai_client: AsyncOpenAI,
+    get_current_block: Callable[[], Awaitable[int]],
 ) -> None:
-    """Continuously generate evaluations: download audio from corpus, query participants, score, upload to validator's bucket.
+    """Continuously generate evaluations: wait for block slot, then download audio from corpus, query participants, score, upload.
     
-    Uses two Hippius credential sets on validator: corpus (read owner's bucket) and validator (samples bucket).
+    Sample rounds run when (current_block % SAMPLE_SLOT_INTERVAL_BLOCKS) == SAMPLE_SLOT_OFFSET_BLOCKS, so 5 validators
+    (id 0–4) are staggered at 0, 30, 60, 90, 120 every 150 blocks.
     
     Args:
         corpus_client: Minio client for corpus bucket (create_corpus_storage_client)
         validator_client: Minio client for validator's samples bucket (create_validator_storage_client)
         openai_client: AsyncOpenAI client for GPT-4o
+        get_current_block: Async callable returning current chain block number (e.g. subtensor.get_current_block)
     """
     # Ensure validator's samples bucket exists
     await ensure_bucket_available(validator_client, AUDIO_SAMPLES_BUCKET)
-    emit_log(f"Sample generation loop starting (interval={ASSESSMENT_INTERVAL}s)", "start")
+    emit_log(
+        f"Sample generation loop starting (validator_id={VALIDATOR_ID}, slot every {SAMPLE_SLOT_INTERVAL_BLOCKS} blocks at offset {SAMPLE_SLOT_OFFSET_BLOCKS})",
+        "start",
+    )
     emit_log(f"Using API for valid miners: {API_URL}", "info")
-    
+
     round_num = 0
     while True:
+        # Wait until our block slot (e.g. block % 150 == 30 for validator_id 1)
+        while True:
+            block = await get_current_block()
+            if block % SAMPLE_SLOT_INTERVAL_BLOCKS == SAMPLE_SLOT_OFFSET_BLOCKS:
+                break
+            remaining = (SAMPLE_SLOT_OFFSET_BLOCKS - block % SAMPLE_SLOT_INTERVAL_BLOCKS) % SAMPLE_SLOT_INTERVAL_BLOCKS
+            if remaining == 0:
+                remaining = SAMPLE_SLOT_INTERVAL_BLOCKS
+            wait_s = remaining * SECONDS_PER_BLOCK
+            emit_log(f"Block {block}: waiting {remaining} blocks (~{wait_s}s) until sample slot (offset={SAMPLE_SLOT_OFFSET_BLOCKS})", "info")
+            await asyncio.sleep(wait_s)
+
         round_num += 1
         round_start = time.time()
         try:
@@ -371,12 +395,12 @@ async def generate_samples_continuously(
                 valid_participants = await get_valid_participants_from_api()
             except Exception as e:
                 emit_log(f"Failed to get participants from API: {e}", "error")
-                await asyncio.sleep(ASSESSMENT_INTERVAL)
+                await asyncio.sleep(SECONDS_PER_BLOCK)
                 continue
-            
+
             if not valid_participants:
                 emit_log("No valid participants found", "warn")
-                await asyncio.sleep(ASSESSMENT_INTERVAL)
+                await asyncio.sleep(SECONDS_PER_BLOCK)
                 continue
             
             emit_log(f"Found {len(valid_participants)} valid participants from API", "info")
@@ -397,7 +421,7 @@ async def generate_samples_continuously(
             # 2. Download random audio from corpus bucket (owner's bucket, corpus credentials)
             audio_key = await select_random_audio(corpus_client)
             if not audio_key:
-                await asyncio.sleep(ASSESSMENT_INTERVAL)
+                await asyncio.sleep(SECONDS_PER_BLOCK)
                 continue
             
             emit_log(f"Selected audio: {audio_key}", "info")
@@ -415,12 +439,12 @@ async def generate_samples_continuously(
             if duration < AUDIO_SOURCE_MIN_DURATION_SEC:
                 emit_log(f"Audio too short ({duration:.1f}s < {AUDIO_SOURCE_MIN_DURATION_SEC}s), skipping", "warn")
                 os.remove(audio_path)
-                await asyncio.sleep(ASSESSMENT_INTERVAL)
+                await asyncio.sleep(SECONDS_PER_BLOCK)
                 continue
             if duration > AUDIO_SOURCE_MAX_DURATION_SEC:
                 emit_log(f"Audio too long ({duration:.1f}s > {AUDIO_SOURCE_MAX_DURATION_SEC}s), skipping", "warn")
                 os.remove(audio_path)
-                await asyncio.sleep(ASSESSMENT_INTERVAL)
+                await asyncio.sleep(SECONDS_PER_BLOCK)
                 continue
             
             # 4. Get transcription + voice traits from full audio via GPT audio model (no segments)
@@ -464,34 +488,54 @@ async def generate_samples_continuously(
             if not successful_participants:
                 emit_log("No participants generated audio, skipping evaluation", "warn")
                 os.remove(audio_path)
-                await asyncio.sleep(ASSESSMENT_INTERVAL)
+                await asyncio.sleep(SECONDS_PER_BLOCK)
                 continue
             
             emit_log(f"{len(successful_participants)}/{len(participants)} participants generated audio", "info")
             
-            # 6. Score each successful participant: full original vs full generated (no segments)
+            # 6. Write participant audio files, then score each (original vs generated) concurrently via OpenAI
             participant_results: Dict[str, Dict[str, Any]] = {}
             files_to_upload = {"original.wav": audio_path}
-            
+            eval_semaphore = asyncio.Semaphore(MAX_PARALLEL_EVALS)
+
+            async def evaluate_one(
+                hotkey: str,
+                participant_info: Dict[str, Any],
+                participant_audio_path: str,
+                audio_filename: str,
+                endpoint: str | None,
+            ) -> tuple[str, Dict[str, Any], str, str, str | None, Dict[str, Any]]:
+                async with eval_semaphore:
+                    comparison = await forced_choice_assessment_async(
+                        openai_client,
+                        audio_path,
+                        participant_audio_path,
+                        description,
+                    )
+                    return hotkey, participant_info, participant_audio_path, audio_filename, endpoint, comparison
+
+            # Write all participant files first
+            eval_tasks = []
             for hotkey, participant_info in successful_participants.items():
                 hotkey_short = hotkey[:8]
                 audio_bytes, _, endpoint = participant_audio[hotkey]
-                
                 participant_audio_path = f"/tmp/participant_{hotkey_short}_{evaluation_id}.wav"
                 with open(participant_audio_path, "wb") as f:
                     f.write(audio_bytes)
-                
-                # Compare full audios via GPT audio model (which is more natural given task)
-                comparison = await forced_choice_assessment_async(
-                    openai_client,
-                    audio_path,
-                    participant_audio_path,
-                    description,
-                )
-                
                 audio_filename = f"participant_{hotkey_short}.wav"
                 files_to_upload[audio_filename] = participant_audio_path
-                
+                eval_tasks.append(
+                    evaluate_one(hotkey, participant_info, participant_audio_path, audio_filename, endpoint)
+                )
+
+            eval_results = await asyncio.gather(*eval_tasks, return_exceptions=True)
+
+            for result in eval_results:
+                if isinstance(result, Exception):
+                    emit_log(f"Evaluation error: {result}", "warn")
+                    continue
+                hotkey, participant_info, participant_audio_path, audio_filename, endpoint, comparison = result
+                hotkey_short = hotkey[:8]
                 participant_results[hotkey] = {
                     "hotkey": hotkey,
                     "chute_id": participant_info["chute_id"],
@@ -506,7 +550,6 @@ async def generate_samples_continuously(
                         "presentation_order": comparison["presentation_order"],
                     },
                 }
-                
                 result_str = "WIN" if comparison["generated_won"] else "LOSE"
                 reasoning_short = (comparison.get("reasoning") or "")[:80].replace("\n", " ")
                 emit_log(f"Participant {hotkey_short}: {result_str} (conf={comparison['confidence']}%)",
@@ -587,6 +630,6 @@ async def generate_samples_continuously(
                         except OSError:
                             pass
         
-        emit_log(f"Sleeping {ASSESSMENT_INTERVAL}s before next round...", "info")
-        await asyncio.sleep(ASSESSMENT_INTERVAL)
+        # Leave current block slot so next loop iteration waits for the next slot (~150 blocks later)
+        await asyncio.sleep(SECONDS_PER_BLOCK)
 
