@@ -2,7 +2,7 @@
   <img src="docs/vocence.png" alt="Vocence" width="640">
 </p>
 
-# Vocence
+# <a href="https://vocence.ai" style="color: #DFFF00;">Vocence</a>
 
 **Open, incentivized voice intelligence on Bittensor.**
 
