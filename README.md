@@ -134,3 +134,9 @@ Use **uv** for local tooling (e.g. `uv run vocence`); Chutes builds run in their
 
 - **CLI reference:** [docs/CLI.md](docs/CLI.md) — All commands for validators, miners, and owners.
 - **Miners:** [miner_sample/MINER_GUIDE.md](miner_sample/MINER_GUIDE.md)
+
+---
+
+## License
+
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
