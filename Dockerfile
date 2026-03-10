@@ -11,14 +11,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install uv and dependencies (lockfile for reproducible builds)
-COPY pyproject.toml uv.lock* ./
+# Install uv and dependencies (sync without --frozen for cross-platform Docker builds)
+COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir --upgrade pip uv \
-    && uv sync --frozen --no-dev --no-install-project
+    && uv sync --no-dev --no-install-project
 
 # Copy application code and install project
 COPY . .
-RUN uv sync --frozen --no-dev
+RUN uv sync --no-dev
 
 # Non-root user
 RUN useradd -m -u 1000 validator && chown -R validator:validator /app
