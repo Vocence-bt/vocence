@@ -60,7 +60,7 @@ Vocence integrates with other Bittensor infrastructure, including:
 | Role | What they do |
 |------|----------------|
 | **Miners** | Train PromptTTS models, publish them on Hugging Face, and deploy on [Chutes](https://chutes.ai) using the canonical Vocence wrapper. They expose a single `/speak` API (text + instruction → WAV). You can run miner workflows via the [CLI](docs/CLI.md#miner-commands) (`vocence miner push`, `vocence miner commit`) or follow [miner_sample](miner_sample/MINER_GUIDE.md) for the Chutes deploy. Rewards come from validator scores. |
-| **Validators** | Pull the list of registered miners, call each miner's Chutes `/speak` endpoint with evaluation prompts, run the pre-defined scoring pipeline, and set weights on chain. Run the validator via the [CLI](docs/CLI.md#validator-commands) (`vocence serve`) or `python validator.py`. They need Chutes access (to hit miner chutes) and the owner API (miners list, dashboard). |
+| **Validators** | Pull the list of registered miners, call each miner's Chutes `/speak` endpoint with evaluation prompts, run the pre-defined scoring pipeline, and set weights on chain. Run the validator via **Docker + Watchtower** (recommended; see [validator-setup.md](docs/validator-setup.md)) or the [CLI](docs/CLI.md#validator-commands) (`vocence serve`). They need Chutes access (to hit miner chutes) and the owner API (miners list, dashboard). |
 
 ---
 
@@ -91,26 +91,27 @@ Vocence integrates with other Bittensor infrastructure, including:
 
 Then:
 
-1. **Clone and env**
+1. **Clone, env, and run with Docker (recommended)**
 
    ```bash
    git clone https://github.com/Vocence-bt/vocence
    cd vocence
    cp env.example .env
+   # Edit .env: NETWORK, NETUID (102), WALLET_NAME, HOTKEY_NAME,
+   # CHUTES_API_KEY, API_URL, Hippius keys, VALIDATOR_NAME, etc.
+   docker-compose up -d
    ```
 
-   Edit `.env`: set `NETWORK`, `NETUID`, `WALLET_NAME`, `HOTKEY_NAME`, `CHUTES_API_KEY` (from team), `API_URL` (from team), and Hippius keys (`HIPPIUS_CORPUS_*`, `HIPPIUS_VALIDATOR_*`). See `env.example` for optional DB/API vars.
+   The stack runs the published validator image and **Watchtower**; when the team pushes a new image, your validator auto-updates. See **[docs/validator-setup.md](docs/validator-setup.md)** for details and **[docs/cicd-pipeline.md](docs/cicd-pipeline.md)** for how the image is built and published.
 
-2. **Install with uv and run**
+2. **Optional: run from source**
 
    ```bash
    uv sync
    uv run vocence serve
    ```
 
-   Or use the legacy entry point: `uv run python validator.py`. For all validator CLI options (e.g. split generator vs weight-setter), see [docs/CLI.md](docs/CLI.md#validator-commands).
-
-   **Running with PM2 (two processes):** To run the sample generator and weight setter as separate PM2 processes (recommended for production), see **[docs/validator-setup.md](docs/validator-setup.md)**. It covers installing PM2 and running `vocence services generator` and `vocence services validator` under PM2.
+   For all validator CLI options (e.g. split generator vs weight setter), see [docs/CLI.md](docs/CLI.md#validator-commands).
 
 ---
 
@@ -135,7 +136,7 @@ Use **uv** for local tooling (e.g. `uv run vocence`); Chutes builds run in their
 ## Links
 
 - **CLI reference:** [docs/CLI.md](docs/CLI.md) — All commands for validators, miners, and owners.
-- **Validator setup (PM2):** [docs/validator-setup.md](docs/validator-setup.md) — Run generator and weight setter as two PM2 processes.
+- **Validator setup (Docker + Watchtower):** [docs/validator-setup.md](docs/validator-setup.md) — Run the published image with auto-updates. [CI/CD pipeline](docs/cicd-pipeline.md) — How the image is built and published.
 - **Miners:** [miner_sample/MINER_GUIDE.md](miner_sample/MINER_GUIDE.md)
 
 ---

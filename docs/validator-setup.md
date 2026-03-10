@@ -1,115 +1,91 @@
-# Validator setup guide
+# Validator setup guide (Docker + Watchtower)
 
-This guide covers running a Vocence validator, including optional process management with **PM2** (two processes: sample generator and weight setter).
+This guide covers running a Vocence validator using **Docker** and **Watchtower**. The same image is built and published by the team via CI/CD; validators run that image and auto-update when a new one is pushed.
 
 ---
 
 ## Prerequisites
 
 - **From the Vocence team:** Chutes permission, owner API URL (`API_URL`), Hippius corpus + validator keys.
-- **Your side:** Bittensor wallet (coldkey + hotkey), `.env` configured (see [README](../README.md#validator-quick-start)).
+- **Your side:** Bittensor wallet (coldkey + hotkey), Docker and Docker Compose installed.
 
 ---
 
-## Option A: Single process (`vocence serve`)
+## 1. Prepare environment and wallet
 
-Run both sample generation and weight setting in one process:
+1. **Clone the repo** (only needed for config and compose file; the validator runs from the published image):
 
-```bash
-cd /path/to/vocence
-uv sync
-uv run vocence serve
-```
+   ```bash
+   git clone https://github.com/Vocence-bt/vocence
+   cd vocence
+   ```
 
-Good for local or single-instance runs. For production, Option B (PM2) is recommended.
+2. **Create `.env`** from the example and fill in values (wallet, Chutes, Hippius, API_URL, etc.):
+
+   ```bash
+   cp env.example .env
+   # Edit .env: NETWORK, NETUID (102), WALLET_NAME, HOTKEY_NAME,
+   # CHUTES_API_KEY, API_URL, HIPPIUS_* keys, VALIDATOR_NAME, etc.
+   ```
+
+3. **Bittensor wallets** must be available at `~/.bittensor/wallets` on the host (coldkey and hotkey). The compose file mounts this directory read-only into the validator container.
 
 ---
 
-## Option B: Two processes with PM2 (recommended)
+## 2. Run with Docker Compose
 
-Run the **sample generator** and **weight setter** as separate PM2 processes so you can scale, restart, and monitor them independently.
-
-### 1. Install PM2
-
-PM2 is a process manager for Node.js; the Vocence CLI runs under it via `uv run vocence`.
-
-**Install Node.js (if needed)** — PM2 requires Node:
+Start the validator and Watchtower:
 
 ```bash
-# Ubuntu/Debian
-sudo apt-get update && sudo apt-get install -y nodejs npm
-
-# Or use nvm (https://github.com/nvm-sh/nvm)
-# nvm install --lts && nvm use --lts
+docker-compose up -d
 ```
 
-**Install PM2 globally:**
+- **Validator:** Docker pulls the image from Docker Hub (e.g. `vocence102/vocence:latest`) if it isn’t already on your machine, then runs it (`vocence serve` — sample generation + weight setting in one process).
+- **Watchtower:** Polls Docker Hub every 5 minutes; when the team pushes a new image, it pulls and restarts the validator so you stay up to date without manual steps.
+
+### Overriding the image (optional)
+
+If the team uses a different image name or tag, set it in `.env`:
 
 ```bash
-sudo npm install -g pm2
+DOCKER_IMAGE=vocence102/vocence:latest
 ```
 
-Verify:
+Then run `docker-compose up -d` as above.
 
-```bash
-pm2 --version
-```
+---
 
-### 2. Run the two validator processes
+## 3. Logs and health
 
-From your Vocence repo directory (where `.env` and `uv` are):
+- **Stream logs:**  
+  `docker-compose logs -f validator`
+- **Watchtower logs:**  
+  `docker-compose logs -f watchtower`
+- **Restart validator only:**  
+  `docker-compose restart validator`
+- **Stop everything:**  
+  `docker-compose down`
 
-**Process 1 — Sample generator** (corpus → miners → eval → upload):
+The validator service has a healthcheck; Docker will report its status in `docker ps`.
 
-```bash
-cd /path/to/vocence
-pm2 start "uv run vocence services generator" --name vocence-generator
-```
+---
 
-**Process 2 — Weight setter** (reads samples bucket, sets weights on chain):
+## 4. How updates work
 
-```bash
-pm2 start "uv run vocence services validator" --name vocence-validator
-```
-
-Both use the same `.env` in the current working directory. Ensure `LOG_DIR` is set if you want daily log files (e.g. `LOG_DIR=logs`).
-
-### 3. Using an ecosystem file (optional)
-
-To start both with one command and persist options, use the provided ecosystem config:
-
-```bash
-cd /path/to/vocence
-pm2 start ecosystem.config.cjs
-```
-
-This starts `vocence-generator` and `vocence-validator` with cwd set to the repo. Logging level is set to **INFO** so you see all logs in `pm2 logs`. Edit `ecosystem.config.cjs` if your path or env differs.
-
-### 4. Useful PM2 commands
-
-| Command | Description |
-|--------|-------------|
-| `pm2 list` | List processes (vocence-generator, vocence-validator) |
-| `pm2 logs` | Stream logs from all processes |
-| `pm2 logs vocence-generator` | Logs for generator only |
-| `pm2 logs vocence-validator` | Logs for weight setter only |
-| `pm2 restart vocence-generator` | Restart generator |
-| `pm2 stop vocence-validator` | Stop weight setter |
-| `pm2 delete vocence-generator` | Remove from PM2 (stops if running) |
-| `pm2 save` | Save process list (survives reboot if you set up startup) |
-| `pm2 startup` | Print command to enable PM2 on boot (run the printed command as instructed) |
-
-After `pm2 save` and `pm2 startup`, your two processes will restart on server reboot.
+1. The team pushes code to `main`/`master`; GitHub Actions builds the Docker image and pushes it to Docker Hub (see [CI/CD pipeline](cicd-pipeline.md)).
+2. On each validator host, Watchtower runs in the same stack and polls the registry (default every 300 seconds).
+3. When a new image is available for the validator container, Watchtower pulls it and restarts the container (rolling restart).
+4. No manual pull or restart is required; all validators using this setup stay in sync with the published image.
 
 ---
 
 ## Summary
 
-| Process | CLI command | Role |
-|--------|-------------|------|
-| **Generator** | `vocence services generator` | Block-based sample generation: fetch audio, query miners, OpenAI eval, upload to your samples bucket. |
-| **Validator** | `vocence services validator` | Weight setting: every 150 blocks, read scores from your bucket, set weights on chain. |
+| What | How |
+|------|-----|
+| Run validator | `docker-compose up -d` (uses published image + your `.env` and wallets). |
+| Updates | Automatic via Watchtower when the team pushes a new image. |
+| Logs | `docker-compose logs -f validator` |
+| Config | `.env` and `~/.bittensor/wallets` on the host. |
 
-Both need the same `.env` (wallet, Hippius, Chutes, API_URL, etc.). Run them in the same directory so `uv run vocence` and `.env` resolve correctly.
-
-For full CLI reference, see [CLI.md](CLI.md).
+For the full CI/CD flow (how the image is built and published), see [cicd-pipeline.md](cicd-pipeline.md). For CLI options (e.g. split generator vs weight setter if you run without Docker), see [CLI.md](CLI.md).

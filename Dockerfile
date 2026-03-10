@@ -1,39 +1,33 @@
-# Chi Subnet Validator Docker Image
-# Build: docker build -t chi-validator .
-# Run: docker-compose up -d
+# Vocence Subnet - Validator image
+# Build: docker build -t vocence-validator .
+# Run: docker-compose up -d (see docker-compose.yml)
 
 FROM python:3.12-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python dependencies first (better layer caching)
-COPY pyproject.toml ./
+# Install uv and dependencies (lockfile for reproducible builds)
+COPY pyproject.toml uv.lock* ./
+RUN pip install --no-cache-dir --upgrade pip uv \
+    && uv sync --frozen --no-dev --no-install-project
 
-# Install uv for faster dependency resolution
-RUN pip install --no-cache-dir --upgrade pip uv
-
-# Copy application code
+# Copy application code and install project
 COPY . .
+RUN uv sync --frozen --no-dev
 
-# Install dependencies
-RUN uv pip install --system --no-cache -e .
+# Non-root user
+RUN useradd -m -u 1000 validator && chown -R validator:validator /app
+USER validator
 
-# Create non-root user for security
-RUN useradd -m -u 1000 validator && \
-    chown -R validator:validator /app
-
-# Environment configuration
 ENV NETWORK=finney
-ENV NETUID=1
-ENV WALLET_NAME=validator
-ENV HOTKEY_NAME=default
+ENV NETUID=102
 ENV LOG_LEVEL=INFO
+ENV PATH="/app/.venv/bin:$PATH"
 
-# Run the validator
-CMD ["python", "validator.py"]
+# Single process: sample generation + weight setting (same as vocence serve)
+CMD ["vocence", "serve"]
