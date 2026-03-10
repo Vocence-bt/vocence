@@ -110,6 +110,8 @@ Then:
 
    Or use the legacy entry point: `uv run python validator.py`. For all validator CLI options (e.g. split generator vs weight-setter), see [docs/CLI.md](docs/CLI.md#validator-commands).
 
+   **Running with PM2 (two processes):** To run the sample generator and weight setter as separate PM2 processes (recommended for production), see **[docs/validator-setup.md](docs/validator-setup.md)**. It covers installing PM2 and running `vocence services generator` and `vocence services validator` under PM2.
+
 ---
 
 ## Miner quick start
@@ -133,6 +135,7 @@ Use **uv** for local tooling (e.g. `uv run vocence`); Chutes builds run in their
 ## Links
 
 - **CLI reference:** [docs/CLI.md](docs/CLI.md) — All commands for validators, miners, and owners.
+- **Validator setup (PM2):** [docs/validator-setup.md](docs/validator-setup.md) — Run generator and weight setter as two PM2 processes.
 - **Miners:** [miner_sample/MINER_GUIDE.md](miner_sample/MINER_GUIDE.md)
 
 ---
