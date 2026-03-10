@@ -1,7 +1,7 @@
 """Tests for vocence.pipeline.evaluation."""
 import tempfile
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from vocence.pipeline.evaluation import (
     generate_description_async,
     forced_choice_assessment_async,
@@ -21,19 +21,21 @@ def temp_wav_path():
 
 @pytest.mark.asyncio
 async def test_generate_description_returns_string(mock_openai_client, temp_wav_path):
-    mock_openai_client.chat.completions.create = AsyncMock(
-        return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(content='{"transcription": "Hi", "gender": "male", "emotion": "neutral", "pitch": "normal", "tone": "casual", "environment": "quiet", "speed": "normal", "accent": "american"}'))]
-        )
-    )
-    try:
-        result = await generate_description_async(mock_openai_client, temp_wav_path)
-        assert isinstance(result, str)
-        assert "Hi" in result or "male" in result
-    finally:
-        import os
-        if os.path.exists(temp_wav_path):
-            os.remove(temp_wav_path)
+    # Implementation uses AudioJudge via _get_judge(), not openai_client; mock the judge.
+    mock_judge = MagicMock()
+    mock_judge.judge_audio_pointwise.return_value = {
+        "success": True,
+        "response": '{"transcription": "Hi", "gender": "male", "emotion": "neutral", "pitch": "normal", "tone": "casual", "environment": "quiet", "speed": "normal", "accent": "american"}',
+    }
+    with patch("vocence.pipeline.evaluation._get_judge", return_value=mock_judge):
+        try:
+            result = await generate_description_async(mock_openai_client, temp_wav_path)
+            assert isinstance(result, str)
+            assert "Hi" in result or "male" in result
+        finally:
+            import os
+            if os.path.exists(temp_wav_path):
+                os.remove(temp_wav_path)
 
 
 @pytest.mark.asyncio
@@ -61,20 +63,22 @@ async def test_forced_choice_returns_dict(mock_openai_client, temp_wav_path):
 
 @pytest.mark.asyncio
 async def test_get_transcription_and_traits_returns_dict(mock_openai_client, temp_wav_path):
-    mock_openai_client.chat.completions.create = AsyncMock(
-        return_value=MagicMock(
-            choices=[MagicMock(message=MagicMock(content='{"transcription": "Hello", "gender": "female", "emotion": "happy", "pitch": "normal", "tone": "warm", "environment": "quiet", "speed": "normal", "accent": "british"}'))]
-        )
-    )
-    try:
-        result = await get_transcription_and_traits_async(mock_openai_client, temp_wav_path)
-        assert result["transcription"] == "Hello"
-        assert result["gender"] == "female"
-        assert result["accent"] == "british"
-    finally:
-        import os
-        if os.path.exists(temp_wav_path):
-            os.remove(temp_wav_path)
+    # Implementation uses AudioJudge via _get_judge(), not openai_client; mock the judge.
+    mock_judge = MagicMock()
+    mock_judge.judge_audio_pointwise.return_value = {
+        "success": True,
+        "response": '{"transcription": "Hello", "gender": "female", "emotion": "happy", "pitch": "normal", "tone": "warm", "environment": "quiet", "speed": "normal", "accent": "british"}',
+    }
+    with patch("vocence.pipeline.evaluation._get_judge", return_value=mock_judge):
+        try:
+            result = await get_transcription_and_traits_async(mock_openai_client, temp_wav_path)
+            assert result["transcription"] == "Hello"
+            assert result["gender"] == "female"
+            assert result["accent"] == "british"
+        finally:
+            import os
+            if os.path.exists(temp_wav_path):
+                os.remove(temp_wav_path)
 
 
 def test_format_task_prompt_for_tts():
