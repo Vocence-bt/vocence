@@ -1,114 +1,85 @@
-# Chi Subnet Docker Compose
+# Vocence Subnet - Validator with Watchtower auto-updates
 #
-# For Validators: Use this file to run the validator with auto-updates
+# Validators run this stack. When the team pushes a new image to Docker Hub,
+# Watchtower pulls it and restarts the validator container so all validators
+# stay up to date without manual steps.
 #
 # Usage:
-#   1. Copy this file to your server
-#   2. Update NETUID and wallet configuration
+#   1. Copy env.example to .env and fill in wallet, Chutes, Hippius, API_URL (from Vocence team).
+#   2. Ensure ~/.bittensor/wallets exists with your coldkey/hotkey.
 #   3. Run: docker-compose up -d
-#   4. View logs: docker-compose logs -f validator
+#   4. Logs: docker-compose logs -f validator
 #
-# Watchtower will automatically update the validator when new images are pushed
+# Image: use the same image name your team publishes (set DOCKER_IMAGE if different).
 
 services:
   validator:
-    # For production: use the Docker Hub image
-    # image: your-dockerhub-username/chi-subnet:latest
-    
-    # For development: build locally
-    build: .
-    
-    container_name: chi-validator
+    # Production: use image from Docker Hub (published by CI/CD)
+    image: ${DOCKER_IMAGE:-vocence102/vocence:latest}
+    # Local build (development): uncomment and comment image above
+    # build: .
+
+    container_name: vocence-validator
     restart: unless-stopped
-    
-    # Load environment variables from .env file
+
     env_file:
       - .env
-    
+    # All variables from .env are loaded into the container. The entries below
+    # only set defaults for these six so the stack works with a minimal .env.
     environment:
-      # Network configuration
       - NETWORK=${NETWORK:-finney}
-      - NETUID=${NETUID:-1}
-      
-      # Wallet configuration (keys are mounted as volume)
+      - NETUID=${NETUID:-102}
       - WALLET_NAME=${WALLET_NAME:-default}
       - HOTKEY_NAME=${HOTKEY_NAME:-default}
-      
-      # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    
+      - LOG_DIR=${LOG_DIR:-logs}
+
     volumes:
-      # Mount wallet directory (read-only for security)
       - ~/.bittensor/wallets:/root/.bittensor/wallets:ro
-      
-      # Persistent storage for validator state/scores
-      - validator-data:/app/data
-    
-    # Uncomment if your validator serves an axon
-    # ports:
-    #   - "8091:8091"
-    
-    # Resource limits - adjust based on your hardware
+      - vocence-logs:/app/logs
+
     deploy:
       resources:
         limits:
           memory: 4G
         reservations:
           memory: 2G
-    
-    # Health check
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import bittensor; print('healthy')"]
+      test: ["CMD", "python", "-c", "import bittensor; print('ok')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
-    
-    # Logging configuration
+
     logging:
       driver: "json-file"
       options:
         max-size: "100m"
         max-file: "5"
-    
-    # Labels for Watchtower
+
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
-  # Watchtower - automatically updates containers when new images are available
   watchtower:
     image: containrrr/watchtower:latest
-    container_name: watchtower
+    container_name: vocence-watchtower
     restart: unless-stopped
-    
+
     environment:
-      # Check for updates every 5 minutes (300 seconds)
       - WATCHTOWER_POLL_INTERVAL=300
-      
-      # Clean up old images after updating
       - WATCHTOWER_CLEANUP=true
-      
-      # Only update containers with the enable label
       - WATCHTOWER_LABEL_ENABLE=true
-      
-      # Rolling restart - graceful updates
       - WATCHTOWER_ROLLING_RESTART=true
-      
-      # Uncomment for Slack notifications
-      # - WATCHTOWER_NOTIFICATIONS=slack
-      # - WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL=${SLACK_WEBHOOK_URL}
-      # - WATCHTOWER_NOTIFICATION_SLACK_IDENTIFIER=${HOSTNAME:-chi-validator}
-    
+
     volumes:
-      # Watchtower needs Docker socket access to manage containers
       - /var/run/docker.sock:/var/run/docker.sock
-    
+
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
-
 volumes:
-  validator-data:
+  vocence-logs:
