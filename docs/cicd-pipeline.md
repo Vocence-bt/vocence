@@ -42,7 +42,7 @@ The image name is:
 docker.io/<DOCKERHUB_USERNAME>/vocence
 ```
 
-Example: if `DOCKERHUB_USERNAME` is `vocence102`, the image is `docker.io/vocence102/vocence`.
+Example: if `DOCKERHUB_IMAGE_NAMESPACE` is `vocence102`, the image is `docker.io/vocence102/vocence`.
 
 ---
 
@@ -59,8 +59,9 @@ Example: if `DOCKERHUB_USERNAME` is `vocence102`, the image is `docker.io/vocenc
 3. **GitHub Actions secrets**
    - In your GitHub repo: **Settings → Secrets and variables → Actions**.
    - Add:
-     - `DOCKERHUB_USERNAME`: Docker Hub username or org (e.g. `vocence-bt`).
-     - `DOCKERHUB_TOKEN`: the Docker Hub access token.
+     - `DOCKERHUB_USERNAME`: Your **personal** Docker Hub username (used only for login; an org name cannot authenticate).
+     - `DOCKERHUB_TOKEN`: Docker Hub access token created from your **personal** account.
+     - `DOCKERHUB_IMAGE_NAMESPACE`: Namespace (org or username) for the image (e.g. `vocence102`). The image will be `vocence102/vocence`.
 
 4. **Validator image name**
    - Validators must use the **same** image name you publish. Default in `docker-compose.yml` is `vocence-bt/vocence:latest`.
