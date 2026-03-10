@@ -43,7 +43,7 @@ The canonical wrapper is generated from the template in `chute_template/`. You m
 | `VOCENCE_REPO` | Hugging Face repo ID (e.g. `your-username/your-tts-repo`). |
 | `VOCENCE_REVISION` | Repo revision; **commit hash strongly recommended**. |
 | `VOCENCE_CHUTES_USER` | Chutes username. |
-| `VOCENCE_CHUTE_ID` | Chute name (e.g. `vocence-tts-001`). |
+| `VOCENCE_CHUTE_ID` | Chute name you give when deploying (e.g. `vocence-tts-001`). **Must contain `vocence`** (case-insensitive); the owner checks the chute **name** from the Chutes API, not the chute_id (UUID) on chain. |
 
 All other wrapper code is fixed. Changing anything else causes **wrapper integrity** to fail (see below).
 
@@ -55,13 +55,13 @@ All other wrapper code is fixed. Changing anything else causes **wrapper integri
    - `{{ huggingface_repository_name }}` → your repo ID  
    - `{{ huggingface_repository_revision }}` → your commit hash  
    - `{{ chute_username }}` → your Chutes user  
-   - `{{ chute_name }}` → your chute ID (must contain **vocence** somewhere; position does not matter; e.g. `my-vocence-tts`, `vocence-prompttts`)  
+   - `{{ chute_name }}` → your **chute name** (the name you give the deployment in Chutes; must contain **vocence** somewhere, case-insensitive; e.g. `vocence-parler-tts-010`, `my-vocence-tts`). This is the deployment name in Chutes, not the chute_id (UUID) you commit on chain.  
 
 2. Build: `chutes build <your_module>:chute --local` (or `--wait` for remote).
 
 3. Deploy: `chutes deploy <your_module>:chute --accept-fee`.
 
-4. Commit on chain: `model_name`, `model_revision`, `chute_id` (via CLI or your flow).
+4. Commit on chain: `model_name`, `model_revision`, `chute_id` (the UUID from Chutes; via CLI or your flow). The **chute name** (step 1) is what must contain "vocence"; the chute_id on chain is a UUID and is not checked for the magic word.
 
 ---
 

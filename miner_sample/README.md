@@ -12,7 +12,7 @@ This directory contains the **canonical chute template** and an **example HF rep
 
 ## Wrapper integrity
 
-**The owner** (not validators) checks wrapper integrity: they fetch your deploy script from the Chutes API, mask the four approved variables, normalize, hash, and compare to the canonical wrapper. If the fetch fails or the hash does not match, your participant is marked invalid. Validators only call `/health` and `/speak` for scoring.
+**The owner** (not validators) checks wrapper integrity: they fetch your deploy script from the Chutes API, mask the four approved variables, normalize, hash, and compare to the canonical wrapper. If the fetch fails or the hash does not match, your participant is marked invalid. The owner also requires your **chute name** (the deployment name in Chutes) to contain "vocence" (case-insensitive); the chute_id on chain is a UUID and is not checked for this. Validators only call `/health` and `/speak` for scoring.
 
 ## Quick start
 

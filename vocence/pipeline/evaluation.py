@@ -14,6 +14,7 @@ import random
 from typing import Any, Dict
 
 from vocence.domain.config import GPT_AUDIO_MODEL, OPENAI_AUTH_KEY
+from vocence.shared.logging import emit_log
 
 
 # ---------------------------------------------------------------------------
@@ -70,18 +71,22 @@ async def get_transcription_and_traits_async(openai_client: Any, audio_path: str
     """
     judge = _get_judge()
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        None,
-        lambda: judge.judge_audio_pointwise(
-            audio_path=audio_path,
-            system_prompt=DESCRIPTION_SYSTEM,
-            user_prompt=None,
-            model=GPT_AUDIO_MODEL,
-            concatenation_method="no_concatenation",
-            temperature=0.00000001,
-            max_tokens=500,
-        ),
-    )
+    try:
+        result = await loop.run_in_executor(
+            None,
+            lambda: judge.judge_audio_pointwise(
+                audio_path=audio_path,
+                system_prompt=DESCRIPTION_SYSTEM,
+                user_prompt=None,
+                model=GPT_AUDIO_MODEL,
+                concatenation_method="no_concatenation",
+                temperature=0.00000001,
+                max_tokens=500,
+            ),
+        )
+    except Exception as e:
+        emit_log(f"OpenAI/AudioJudge pointwise failed ({e}), using fallback traits", "warn")
+        return _parse_traits_response("")
     if not result.get("success"):
         return _parse_traits_response("")  # fallback
     return _parse_traits_response(result.get("response", "") or "")
@@ -155,20 +160,32 @@ async def compare_audio_naturalness_async(
     
     system_prompt = COMPARE_SYSTEM_TEMPLATE.format(task_description=task_description)
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        None,
-        lambda: judge.judge_audio(
-            audio1_path=first_path,
-            audio2_path=second_path,
-            system_prompt=system_prompt,
-            user_prompt=None,
-            model=GPT_AUDIO_MODEL,
-            concatenation_method="no_concatenation",
-            temperature=0.00000001,
-            max_tokens=200,
-        ),
-    )
-    
+    try:
+        result = await loop.run_in_executor(
+            None,
+            lambda: judge.judge_audio(
+                audio1_path=first_path,
+                audio2_path=second_path,
+                system_prompt=system_prompt,
+                user_prompt=None,
+                model=GPT_AUDIO_MODEL,
+                concatenation_method="no_concatenation",
+                temperature=0.00000001,
+                max_tokens=200,
+            ),
+        )
+    except Exception as e:
+        emit_log(f"OpenAI/AudioJudge pairwise failed ({e}), treating as tie", "warn")
+        return {
+            "original_won": False,
+            "generated_won": False,
+            "confidence": 50,
+            "reasoning": str(e)[:200] or "Evaluation failed",
+            "original_artifacts": [],
+            "generated_artifacts": [],
+            "presentation_order": f"{'generated' if swap else 'original'} first",
+        }
+
     if not result.get("success"):
         # Fallback: treat as tie / no decision
         return {

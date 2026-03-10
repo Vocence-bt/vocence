@@ -197,31 +197,34 @@ class SourceAudioDownloaderTask:
         self._running = False
 
     async def _run_one_round(self, storage_client: Minio) -> None:
-        entries = _load_manifest()
-        new_keys = await self._download_one_librivox_batch(storage_client)
+        try:
+            entries = _load_manifest()
+            new_keys = await self._download_one_librivox_batch(storage_client)
 
-        if not new_keys:
-            return
+            if not new_keys:
+                return
 
-        now = datetime.now(timezone.utc).isoformat()
-        for key, source in new_keys:
-            entries.append({"object_key": key, "source": source, "added_at": now})
+            now = datetime.now(timezone.utc).isoformat()
+            for key, source in new_keys:
+                entries.append({"object_key": key, "source": source, "added_at": now})
 
-        # Prune if over threshold (remove oldest first)
-        if len(entries) > AUDIO_CORPUS_MAX_ENTRIES:
-            to_remove = len(entries) - AUDIO_CORPUS_MAX_ENTRIES
-            for _ in range(to_remove):
-                old = entries.pop(0)
-                obj_key = old.get("object_key")
-                if obj_key:
-                    try:
-                        await asyncio.to_thread(storage_client.remove_object, AUDIO_SOURCE_BUCKET, obj_key)
-                        emit_log(f"Pruned old corpus object: {obj_key}", "info")
-                    except Exception as e:
-                        emit_log(f"Failed to remove {obj_key}: {e}", "warn")
+            # Prune if over threshold (remove oldest first)
+            if len(entries) > AUDIO_CORPUS_MAX_ENTRIES:
+                to_remove = len(entries) - AUDIO_CORPUS_MAX_ENTRIES
+                for _ in range(to_remove):
+                    old = entries.pop(0)
+                    obj_key = old.get("object_key")
+                    if obj_key:
+                        try:
+                            await asyncio.to_thread(storage_client.remove_object, AUDIO_SOURCE_BUCKET, obj_key)
+                            emit_log(f"Pruned old corpus object: {obj_key}", "info")
+                        except Exception as e:
+                            emit_log(f"Failed to remove {obj_key}: {e}", "warn")
 
-        _save_manifest(entries)
-        emit_log(f"Manifest updated: {len(entries)} entries (LibriVox)", "info")
+            _save_manifest(entries)
+            emit_log(f"Manifest updated: {len(entries)} entries (LibriVox)", "info")
+        except Exception as e:
+            emit_log(f"LibriVox round failed ({e}), will retry next interval", "warn")
 
     async def _download_one_librivox_batch(self, storage_client: Minio) -> List[Tuple[str, str]]:
         """Download one LibriVox chapter, extract 10 clips of 10–40s each, upload. Returns [(object_key, 'librivox'), ...]."""

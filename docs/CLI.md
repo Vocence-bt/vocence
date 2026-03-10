@@ -168,7 +168,7 @@ vocence get-miners
 
 ## Miner commands
 
-For subnet miners: deploy voice models to Chutes and commit model info to the chain. The current implementation (Q1) uses PromptTTS; the canonical wrapper (template, `miner.py`, `chute_config.yml`) and owner-side wrapper integrity (hash check) are described in **miner_sample/** (see MINER_GUIDE.md). **Your Chute ID must contain the word `vocence` (any position, case-insensitive) for owner validation to pass.**
+For subnet miners: deploy voice models to Chutes and commit model info to the chain. The current implementation (Q1) uses PromptTTS; the canonical wrapper (template, `miner.py`, `chute_config.yml`) and owner-side wrapper integrity (hash check) are described in **miner_sample/** (see MINER_GUIDE.md). **Your chute name** (the deployment name you give in Chutes, e.g. `vocence-parler-tts-010`) **must contain the word `vocence`** (any position, case-insensitive) for owner validation to pass; the Chute ID you commit on chain is a UUID and is not checked for this.
 
 ### `vocence miner push`
 

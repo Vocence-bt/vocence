@@ -20,8 +20,9 @@ from vocence.domain.entities import ParticipantInfo
 from vocence.adapters.chutes import fetch_chute_details, fetch_chute_code
 from vocence.registry.wrapper_integrity import check_wrapper_integrity
 
-# Chute ID must contain this substring (case-insensitive) for owner validation to pass
-CHUTE_ID_MAGIC_WORD = "vocence"
+# Chute name must contain this substring (case-insensitive) for owner validation to pass.
+# Checked against the chute name from Chutes API (e.g. vocence-parler-tts-010), not chute_id (UUID).
+CHUTE_NAME_MAGIC_WORD = "vocence"
 
 # Weight file extensions for TTS models (include common formats)
 WEIGHT_EXTENSIONS = (".safetensors", ".bin", ".pt", ".pth", ".ckpt", ".onnx")
@@ -214,16 +215,7 @@ async def validate_miner(
         block=block,
     )
 
-    # Step 0: Chute ID must contain the magic word "vocence" (position doesn't matter)
-    if CHUTE_ID_MAGIC_WORD not in (chute_id or "").lower():
-        info.invalid_reason = "chute_id_missing_vocence"
-        emit_log(
-            f"uid {uid} ({hotkey[:12]}...): chute_id must contain '{CHUTE_ID_MAGIC_WORD}' (got {(chute_id or '')[:40]}...)",
-            "warn",
-        )
-        return info
-
-    # Step 1: Fetch chute info
+    # Step 1: Fetch chute info (need slug to check magic word)
     chute = await fetch_chute_details(session, chute_id)
     if not chute:
         info.invalid_reason = "chute_fetch_failed"
@@ -231,6 +223,17 @@ async def validate_miner(
         return info
 
     info.chute_slug = chute.get("slug", "")
+    # Chute API may return "name" (display name) and/or "slug"; we check the name for the magic word
+    chute_name = chute.get("name") or chute.get("slug") or ""
+
+    # Step 1a: Chute name must contain the magic word "vocence" (e.g. vocence-parler-tts-010)
+    if CHUTE_NAME_MAGIC_WORD not in (chute_name or "").lower():
+        info.invalid_reason = "chute_name_missing_vocence"
+        emit_log(
+            f"uid {uid} ({hotkey[:12]}...): chute name must contain '{CHUTE_NAME_MAGIC_WORD}' (got {(chute_name or '')[:40]}...)",
+            "warn",
+        )
+        return info
     # API may return hot: true or status: "hot"
     is_hot = chute.get("hot", False) or (chute.get("status") or "").lower() == "hot"
     info.chute_status = "hot" if is_hot else "cold"

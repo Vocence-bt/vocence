@@ -31,3 +31,5 @@ wallets/
 Thumbs.db
 .eval_cache/
 data/
+# Daily serve logs (UTC)
+logs/

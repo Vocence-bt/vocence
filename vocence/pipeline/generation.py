@@ -389,7 +389,8 @@ async def generate_samples_continuously(
         round_start = time.time()
         try:
             print_header(f"Sample Generation Round #{round_num}")
-            
+            emit_log(f"Current block: {block}", "info")
+
             # 1. Get valid participants from centralized API
             try:
                 valid_participants = await get_valid_participants_from_api()

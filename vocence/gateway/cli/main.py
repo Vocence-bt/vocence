@@ -160,30 +160,35 @@ def start_generator():
     
     Continuously generates samples by downloading audio from Hippius,
     querying miners, scoring via GPT-4o, and uploading results.
+    Uses block-based slots (same as full validator); requires chain access for current block.
     """
+    import bittensor as bt
     from openai import AsyncOpenAI
-    
-    from vocence.domain.config import OPENAI_AUTH_KEY, CHUTES_AUTH_KEY
+
+    from vocence.domain.config import OPENAI_AUTH_KEY, CHUTES_AUTH_KEY, CHAIN_NETWORK
     from vocence.shared.logging import emit_log, print_header
     from vocence.adapters.storage import create_corpus_storage_client, create_validator_storage_client
     from vocence.pipeline.generation import generate_samples_continuously
-    
+
     async def run_generator():
         print_header("Vocence Prompt Generator Starting")
-        
+
         if not CHUTES_AUTH_KEY:
             emit_log("CHUTES_AUTH_KEY environment variable required", "error")
             return
         if not OPENAI_AUTH_KEY:
             emit_log("OPENAI_AUTH_KEY environment variable required", "error")
             return
-        
+
+        subtensor = bt.AsyncSubtensor(network=CHAIN_NETWORK)
         corpus_client = create_corpus_storage_client()
         validator_client = create_validator_storage_client()
         openai_client = AsyncOpenAI(api_key=OPENAI_AUTH_KEY)
-        
-        await generate_samples_continuously(corpus_client, validator_client, openai_client)
-    
+
+        await generate_samples_continuously(
+            corpus_client, validator_client, openai_client, subtensor.get_current_block
+        )
+
     asyncio.run(run_generator())
 
 

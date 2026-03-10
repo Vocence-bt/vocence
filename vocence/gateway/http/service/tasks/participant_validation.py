@@ -43,7 +43,7 @@ class ParticipantValidationTask:
             try:
                 await self._validate_participants()
             except Exception as e:
-                emit_log(f"Participant validation error: {e}", "error")
+                emit_log(f"Participant validation error: {e}, will retry in {PARTICIPANT_VALIDATION_INTERVAL}s", "error")
                 import traceback
                 traceback.print_exc()
             

@@ -36,7 +36,7 @@ VALIDATOR_ID = int(os.environ.get("VALIDATOR_ID", "1"))  # 0–4 for staggered s
 SAMPLE_SLOT_INTERVAL_BLOCKS = int(os.environ.get("SAMPLE_SLOT_INTERVAL_BLOCKS", "150"))
 # Derived: block % INTERVAL == this value → run sample round
 SAMPLE_SLOT_OFFSET_BLOCKS = (VALIDATOR_ID % 5) * 30  # 0, 30, 60, 90, or 120
-MIN_EVALS_TO_COMPETE = int(os.environ.get("MIN_EVALS_TO_COMPETE", "36"))  # Miner must have more than 35 evals in the scoring window to be eligible
+MIN_EVALS_TO_COMPETE = int(os.environ.get("MIN_EVALS_TO_COMPETE", "40"))  # Miner must have more than 35 evals in the scoring window to be eligible
 THRESHOLD_MARGIN = float(os.environ.get("THRESHOLD_MARGIN", "0.05"))
 # Most recent N evaluations used for scoring (validator S3 + owner metrics). Default 50.
 MAX_EVALS_FOR_SCORING = int(os.environ.get("MAX_EVALS_FOR_SCORING", "50"))
@@ -137,6 +137,9 @@ SERVICE_HOST = os.environ.get("SERVICE_HOST", "0.0.0.0")
 SERVICE_PORT = int(os.environ.get("SERVICE_PORT", "8031"))
 SERVICE_RELOAD = (os.environ.get("SERVICE_RELOAD", "").lower() == "true")
 
+# Serve process logs: daily .log files (UTC), one file per day. Set to empty to disable file logging.
+LOG_DIR = os.environ.get("LOG_DIR", "logs")
+
 # Background worker intervals (seconds)
 PARTICIPANT_VALIDATION_INTERVAL = int(os.environ.get("PARTICIPANT_VALIDATION_INTERVAL", "300"))
 METRICS_CALCULATION_INTERVAL = int(os.environ.get("METRICS_CALCULATION_INTERVAL", "300"))
@@ -150,7 +153,7 @@ HF_AUTH_TOKEN = os.environ.get("HF_AUTH_TOKEN")
 MODEL_FINGERPRINT_CACHE_TTL = int(os.environ.get("MODEL_FINGERPRINT_CACHE_TTL", "3600"))  # 1 hour
 
 # Source audio downloader (LibriVox only)
-AUDIO_CORPUS_MAX_ENTRIES = int(os.environ.get("AUDIO_CORPUS_MAX_ENTRIES", "50"))  # Max clips in corpus; prune oldest when exceeded
+AUDIO_CORPUS_MAX_ENTRIES = int(os.environ.get("AUDIO_CORPUS_MAX_ENTRIES", "1000000"))  # Max clips in corpus; prune oldest when exceeded
 AUDIO_CORPUS_MANIFEST_PATH = os.environ.get(
     "AUDIO_CORPUS_MANIFEST_PATH",
     os.path.join(os.getcwd(), "data", "audio_corpus_manifest.json"),

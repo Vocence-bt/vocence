@@ -51,7 +51,7 @@ class MetricsCalculationTask:
             try:
                 await self._compute_and_store_metrics()
             except Exception as e:
-                emit_log(f"Metrics calculation error: {e}", "error")
+                emit_log(f"Metrics calculation error: {e}, will retry in {METRICS_CALCULATION_INTERVAL}s", "error")
                 import traceback
                 traceback.print_exc()
             

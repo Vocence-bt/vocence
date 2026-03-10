@@ -218,8 +218,19 @@ async def cycle_step(subtensor: bt.AsyncSubtensor, wallet: bt.Wallet, storage_cl
         await asyncio.sleep(wait_time)
         return
 
-    print_header(f"Vocence Cycle #{current_block // CYCLE_LENGTH} (block {current_block})")
-    await execute_cycle(subtensor, wallet, storage_client, current_block)
+    # Cycle number = which CYCLE_LENGTH-sized window (e.g. every 150 blocks) we're in
+    cycle_num = current_block // CYCLE_LENGTH
+    print_header(f"Vocence Cycle #{cycle_num} (block {current_block})")
+    emit_log(f"Weight-setting cycle (every {CYCLE_LENGTH} blocks)", "info")
+    try:
+        await execute_cycle(subtensor, wallet, storage_client, current_block)
+    except Exception as e:
+        emit_log(f"[{current_block}] Cycle failed ({e}), will retry next cycle", "error")
+        import traceback
+        traceback.print_exc()
+    else:
+        # Wait at least one block so next cycle_step doesn't re-run for the same block
+        await asyncio.sleep(12)
 
 
 async def main() -> None:
