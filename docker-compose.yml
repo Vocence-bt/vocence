@@ -7,9 +7,10 @@
 # Usage:
 #   1. Copy env.example to .env and fill in wallet, Chutes, Hippius, API_URL (from Vocence team).
 #   2. Ensure ~/.bittensor/wallets exists with your coldkey/hotkey.
-#   3. Run: docker-compose up -d
-#   4. Logs: docker-compose logs -f validator
+#   3. Run: docker compose up -d
+#   4. Logs: docker compose logs -f validator (or read daily files in ./logs/)
 #
+# Logs: daily files are written to ./logs/vocence_YYYY-MM-DD.log on the host.
 # Image: use the same image name your team publishes (set DOCKER_IMAGE if different).
 
 services:
@@ -36,7 +37,7 @@ services:
 
     volumes:
       - ~/.bittensor/wallets:/root/.bittensor/wallets:ro
-      - vocence-logs:/app/logs
+      - ./logs:/app/logs
 
     deploy:
       resources:
@@ -81,5 +82,3 @@ services:
         max-size: "10m"
         max-file: "3"
 
-volumes:
-  vocence-logs:

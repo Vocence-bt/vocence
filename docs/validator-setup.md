@@ -11,6 +11,61 @@ This guide covers running a Vocence validator using **Docker** and **Watchtower*
 
 ---
 
+## 0. Install Docker and Docker Compose
+
+You need Docker and Docker Compose on the machine that will run the validator.
+
+### Ubuntu / Debian (easiest)
+
+Use Docker’s official script (installs Engine + Compose plugin, avoids repo conflicts):
+
+```bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+```
+
+Add your user to the `docker` group so you can run Docker without `sudo`:
+
+```bash
+sudo usermod -aG docker $USER
+# Log out and back in (or reboot) for the group change to take effect
+```
+
+Verify:
+
+```bash
+docker --version
+docker compose version
+```
+
+### If you prefer manual APT install
+
+If the Docker repo is **already** on your system (e.g. from a previous install), you can just install the packages:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+If you see a **Signed-By conflict** (`/usr/share/keyrings/docker.asc != /etc/apt/keyrings/docker.asc`), remove the duplicate Docker list file so only one key path is used, then run the commands above:
+
+```bash
+sudo rm -f /etc/apt/sources.list.d/docker.list
+# If the repo was only in that file, re-add it from https://docs.docker.com/engine/install/ubuntu/
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+### Other Linux / macOS / Windows
+
+- **Linux (other distros):** [Install Docker Engine](https://docs.docker.com/engine/install/)
+- **macOS:** [Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install/) (includes Compose)
+- **Windows:** [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) (includes Compose)
+
+Use `docker compose` (with a space) as in this guide; it’s the Compose V2 plugin. If you have the older `docker-compose` (with a hyphen), that works too.
+
+---
+
 ## 1. Prepare environment and wallet
 
 1. **Clone the repo** (only needed for config and compose file; the validator runs from the published image):
@@ -37,7 +92,7 @@ This guide covers running a Vocence validator using **Docker** and **Watchtower*
 Start the validator and Watchtower:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 - **Validator:** Docker pulls the image from Docker Hub (e.g. `vocence102/vocence:latest`) if it isn’t already on your machine, then runs it (`vocence serve` — sample generation + weight setting in one process).
@@ -45,26 +100,28 @@ docker-compose up -d
 
 ### Overriding the image (optional)
 
-If the team uses a different image name or tag, set it in `.env`:
+Validators normally use `vocence102/vocence:latest`; the dev team’s CI pushes every new build as `latest`, and Watchtower updates you automatically. Override only if the team gives you a different image name:
 
 ```bash
 DOCKER_IMAGE=vocence102/vocence:latest
 ```
 
-Then run `docker-compose up -d` as above.
+Then run `docker compose up -d` as above.
 
 ---
 
 ## 3. Logs and health
 
-- **Stream logs:**  
-  `docker-compose logs -f validator`
+- **Stream logs (stdout):**  
+  `docker compose logs -f validator`
+- **Daily log files:**  
+  All application logs are written daily (UTC) into the **`logs/`** directory in your project folder. Files are named `vocence_YYYY-MM-DD.log`. The compose file mounts `./logs` into the container, so you can read them on the host (e.g. `tail -f logs/vocence_2025-02-28.log`). If the container cannot write logs, create the directory and give the container user access: `mkdir -p logs && sudo chown 1000:1000 logs`.
 - **Watchtower logs:**  
-  `docker-compose logs -f watchtower`
+  `docker compose logs -f watchtower`
 - **Restart validator only:**  
-  `docker-compose restart validator`
+  `docker compose restart validator`
 - **Stop everything:**  
-  `docker-compose down`
+  `docker compose down`
 
 The validator service has a healthcheck; Docker will report its status in `docker ps`.
 
@@ -83,9 +140,10 @@ The validator service has a healthcheck; Docker will report its status in `docke
 
 | What | How |
 |------|-----|
-| Run validator | `docker-compose up -d` (uses published image + your `.env` and wallets). |
+| Run validator | `docker compose up -d` (uses published image + your `.env` and wallets). |
 | Updates | Automatic via Watchtower when the team pushes a new image. |
-| Logs | `docker-compose logs -f validator` |
+| Logs (stream) | `docker compose logs -f validator` |
+| Logs (daily files) | `logs/vocence_YYYY-MM-DD.log` in the project directory. |
 | Config | `.env` and `~/.bittensor/wallets` on the host. |
 
 For the full CI/CD flow (how the image is built and published), see [cicd-pipeline.md](cicd-pipeline.md). For CLI options (e.g. split generator vs weight setter if you run without Docker), see [CLI.md](CLI.md).
