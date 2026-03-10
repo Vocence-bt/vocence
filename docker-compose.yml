@@ -28,6 +28,7 @@ services:
     # All variables from .env are loaded into the container. The entries below
     # only set defaults for these six so the stack works with a minimal .env.
     environment:
+      - PYTHONUNBUFFERED=1
       - NETWORK=${NETWORK:-finney}
       - NETUID=${NETUID:-102}
       - WALLET_NAME=${WALLET_NAME:-default}
@@ -68,6 +69,7 @@ services:
     restart: unless-stopped
 
     environment:
+      - DOCKER_API_VERSION=1.40
       - WATCHTOWER_POLL_INTERVAL=300
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_LABEL_ENABLE=true

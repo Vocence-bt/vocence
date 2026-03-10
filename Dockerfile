@@ -37,6 +37,7 @@ COPY --from=builder /app/uv.lock /app/
 RUN useradd -m -u 1000 validator && chown -R validator:validator /app
 USER validator
 
+ENV PYTHONUNBUFFERED=1
 ENV NETWORK=finney
 ENV NETUID=102
 ENV LOG_LEVEL=INFO

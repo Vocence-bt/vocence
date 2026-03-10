@@ -85,6 +85,15 @@ Use `docker compose` (with a space) as in this guide; it’s the Compose V2 plug
 
 3. **Bittensor wallets** must be available at `~/.bittensor/wallets` on the host (coldkey and hotkey). The compose file mounts this directory read-only into the validator container.
 
+4. **Create the logs directory** so the container can write daily log files. The validator runs as user `validator` (uid 1000); if `./logs` is created by Docker on first run, it is owned by root and the container cannot write. Do this once before the first `docker compose up -d`:
+
+   ```bash
+   mkdir -p logs
+   sudo chown 1000:1000 logs
+   ```
+
+   If you already started the stack and `logs/` is empty, run the same two commands and then `docker compose restart validator`.
+
 ---
 
 ## 2. Run with Docker Compose
@@ -113,9 +122,9 @@ Then run `docker compose up -d` as above.
 ## 3. Logs and health
 
 - **Stream logs (stdout):**  
-  `docker compose logs -f validator`
+  `docker compose logs -f validator` (use the service name `validator`, not the container name `vocence-validator`)
 - **Daily log files:**  
-  All application logs are written daily (UTC) into the **`logs/`** directory in your project folder. Files are named `vocence_YYYY-MM-DD.log`. The compose file mounts `./logs` into the container, so you can read them on the host (e.g. `tail -f logs/vocence_2025-02-28.log`). If the container cannot write logs, create the directory and give the container user access: `mkdir -p logs && sudo chown 1000:1000 logs`.
+  Logs are written **in real time** into **`logs/vocence_YYYY-MM-DD.log`** (UTC date). Ensure you created `logs` and set ownership (step 4 in section 1) before first run. If `logs/` stays empty: `sudo chown 1000:1000 logs` then `docker compose restart validator`.
 - **Watchtower logs:**  
   `docker compose logs -f watchtower`
 - **Restart validator only:**  
@@ -147,3 +156,10 @@ The validator service has a healthcheck; Docker will report its status in `docke
 | Config | `.env` and `~/.bittensor/wallets` on the host. |
 
 For the full CI/CD flow (how the image is built and published), see [cicd-pipeline.md](cicd-pipeline.md). For CLI options (e.g. split generator vs weight setter if you run without Docker), see [CLI.md](CLI.md).
+
+---
+
+## Troubleshooting
+
+- **Watchtower: "client version 1.25 is too old. Minimum supported API version is 1.40"**  
+  The host Docker daemon requires a newer API. The compose file sets `DOCKER_API_VERSION=1.40` for Watchtower. If you still see this, pull the latest image and restart: `docker compose pull watchtower && docker compose up -d watchtower`.
