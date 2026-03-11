@@ -15,10 +15,8 @@
 
 services:
   validator:
-    # Production: use image from Docker Hub (published by CI/CD)
     image: ${DOCKER_IMAGE:-vocence102/vocence:latest}
-    # Local build (development): uncomment and comment image above
-    # build: .
+    build: .
 
     container_name: vocence-validator
     restart: unless-stopped
@@ -37,7 +35,7 @@ services:
       - LOG_DIR=${LOG_DIR:-logs}
 
     volumes:
-      - ~/.bittensor/wallets:/root/.bittensor/wallets:ro
+      - ~/.bittensor/wallets:/home/validator/.bittensor/wallets:ro
       - ./logs:/app/logs
 
     deploy:

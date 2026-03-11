@@ -34,7 +34,10 @@ COPY --from=builder /app/vocence /app/vocence
 COPY --from=builder /app/pyproject.toml /app/
 COPY --from=builder /app/uv.lock /app/
 
-RUN useradd -m -u 1000 validator && chown -R validator:validator /app
+RUN useradd -m -u 1000 validator \
+    && chown -R validator:validator /app \
+    && mkdir -p /home/validator/.bittensor \
+    && chown validator:validator /home/validator/.bittensor
 USER validator
 
 ENV PYTHONUNBUFFERED=1
