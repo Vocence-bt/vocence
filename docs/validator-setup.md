@@ -83,7 +83,7 @@ Use `docker compose` (with a space) as in this guide; it’s the Compose V2 plug
    # CHUTES_API_KEY, API_URL, HIPPIUS_* keys, VALIDATOR_NAME, etc.
    ```
 
-3. **Bittensor wallets** must be available at `~/.bittensor/wallets` on the host (coldkey and hotkey). The compose file mounts this directory read-only into the validator container.
+3. **Bittensor wallets** must be available at `~/.bittensor/wallets` on the host (coldkey and hotkey). The compose file mounts this directory into the container at `/home/validator/.bittensor/wallets` (read-only) so the app finds `~/.bittensor/wallets` when running as the validator user. If the wallet lives under **root’s home** (e.g. `/root/.bittensor/wallets`), the container user (uid 1000) must be able to read it—on the host run: `sudo chown -R 1000:1000 /root/.bittensor/wallets`.
 
 4. **Create the logs directory** so the container can write daily log files. The validator runs as user `validator` (uid 1000); if `./logs` is created by Docker on first run, it is owned by root and the container cannot write. Do this once before the first `docker compose up -d`:
 
@@ -163,3 +163,6 @@ For the full CI/CD flow (how the image is built and published), see [cicd-pipeli
 
 - **Watchtower: "client version 1.25 is too old. Minimum supported API version is 1.40"**  
   The host Docker daemon requires a newer API. The compose file sets `DOCKER_API_VERSION=1.40` for Watchtower. If you still see this, pull the latest image and restart: `docker compose pull watchtower && docker compose up -d watchtower`.
+
+- **"Keyfile at: .../owner_hotkey does not exist" (wallet in /root/.bittensor/wallets)**  
+  The wallet is mounted correctly, but the container runs as user `validator` (uid 1000). If the wallet on the host is under root’s home and owned by root, the container cannot read it (and may report “does not exist”). On the host run: `sudo chown -R 1000:1000 /root/.bittensor/wallets`, then `docker compose restart validator`.
