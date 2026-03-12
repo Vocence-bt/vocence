@@ -139,9 +139,11 @@ async def execute_cycle(
         else:
             emit_log(f"  {hotkey[:8]}: no samples yet", "info")
 
-    # Winner-take-all with "beat predecessors by threshold" rule.
-    # Eligible miners (>= MIN_EVALS_TO_COMPETE) who beat all earlier (by block) by at least
-    # THRESHOLD_MARGIN are candidates; among them, the one with highest win rate wins.
+    # Winner selection:
+    # - If no eligible miners (total < MIN_EVALS_TO_COMPETE), earliest commit wins.
+    # - If exactly one eligible miner, that miner wins.
+    # - If multiple eligible miners, apply the existing \"beat predecessors by threshold\" rule
+    #   among eligible miners only; if that finds no candidate, pick best win rate among eligible.
     ordered = sorted(participants.keys(), key=lambda hk: participants[hk]["block"])
     
     def get_total(hk: str) -> int:
@@ -150,35 +152,44 @@ async def execute_cycle(
     def get_win_rate(hk: str) -> float:
         return scores.get(hk, {}).get("win_rate", 0.0)
     
-    candidates_who_beat_all_earlier: List[str] = []
-    for candidate in ordered:
-        if get_total(candidate) < MIN_EVALS_TO_COMPETE:
-            continue
-        candidate_rate = get_win_rate(candidate)
-        beats_all = True
-        for prior in ordered:
-            if participants[prior]["block"] >= participants[candidate]["block"]:
-                break
-            if get_total(prior) == 0:
-                continue
-            prior_rate = get_win_rate(prior)
-            if candidate_rate < prior_rate + THRESHOLD_MARGIN:
-                beats_all = False
-                break
-        if beats_all:
-            candidates_who_beat_all_earlier.append(candidate)
+    eligible_hks = [hk for hk in ordered if get_total(hk) >= MIN_EVALS_TO_COMPETE]
 
-    # Among candidates who beat all earlier by margin, pick highest win rate (tie-break: earliest block).
-    leader = None
-    if candidates_who_beat_all_earlier:
-        leader = max(
-            candidates_who_beat_all_earlier,
-            key=lambda hk: (get_win_rate(hk), -participants[hk]["block"]),
-        )
+    # Case A: no eligible miners → earliest committed miner wins.
+    if not eligible_hks:
+        leader = ordered[0]
+    # Case B: exactly one eligible miner → that miner wins.
+    elif len(eligible_hks) == 1:
+        leader = eligible_hks[0]
+    else:
+        # Case C: multiple eligible miners → apply threshold rule among eligible only.
+        candidates_who_beat_all_earlier: List[str] = []
+        for candidate in eligible_hks:
+            candidate_rate = get_win_rate(candidate)
+            beats_all = True
+            for prior in ordered:
+                if participants[prior]["block"] >= participants[candidate]["block"]:
+                    break
+                if get_total(prior) == 0:
+                    continue
+                prior_rate = get_win_rate(prior)
+                if candidate_rate < prior_rate + THRESHOLD_MARGIN:
+                    beats_all = False
+                    break
+            if beats_all:
+                candidates_who_beat_all_earlier.append(candidate)
 
-    if leader is None:
-        eligible = [hk for hk in ordered if get_total(hk) > 0]
-        leader = max(eligible, key=get_win_rate) if eligible else ordered[0]
+        if candidates_who_beat_all_earlier:
+            # Among candidates, pick highest win rate, tie-break earliest block.
+            leader = max(
+                candidates_who_beat_all_earlier,
+                key=lambda hk: (get_win_rate(hk), -participants[hk]["block"]),
+            )
+        else:
+            # Fallback: best win rate among eligible miners, tie-break earliest block.
+            leader = max(
+                eligible_hks,
+                key=lambda hk: (get_win_rate(hk), -participants[hk]["block"]),
+            )
     
     leader_rate = get_win_rate(leader)
     emit_log(f"[{block}] Winner: {leader[:8]} win_rate={leader_rate:.1%}", "success")

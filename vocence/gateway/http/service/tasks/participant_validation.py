@@ -19,7 +19,8 @@ from vocence.domain.config import SUBNET_ID, CHAIN_NETWORK, PARTICIPANT_VALIDATI
 from vocence.registry.persistence.repositories.miner_repository import MinerRepository
 from vocence.registry.persistence.repositories.blocklist_repository import BlocklistRepository
 from vocence.adapters.chain import parse_commitment, validate_commitment_fields
-from vocence.registry.validation import validate_miner
+from vocence.domain.entities import ParticipantInfo
+from vocence.registry.validation import validate_miner, detect_duplicates
 from vocence.gateway.http.service.endpoints.status import record_last_sync
 
 
@@ -79,7 +80,8 @@ class ParticipantValidationTask:
             blocked_participants = await self.blocklist_repo.fetch_blocked_hotkeys()
             
             # Validate each participant
-            validated_participants = []
+            validated_participants: List[Dict[str, Any]] = []
+            participant_infos: List[ParticipantInfo] = []
             
             async with aiohttp.ClientSession() as session:
                 for uid in range(len(meta.hotkeys)):
@@ -125,19 +127,27 @@ class ParticipantValidationTask:
                         chute_id=parsed["chute_id"],
                         block=commit_block,
                     )
-                    
-                    validated_participants.append({
-                        "uid": uid,
-                        "miner_hotkey": hotkey,
-                        "block": participant_info.block,
-                        "model_name": participant_info.model_name,
-                        "model_revision": participant_info.model_revision,
-                        "model_hash": participant_info.model_hash,
-                        "chute_id": participant_info.chute_id,
-                        "chute_slug": participant_info.chute_slug,
-                        "is_valid": participant_info.is_valid,
-                        "invalid_reason": participant_info.invalid_reason,
-                    })
+
+                    participant_infos.append(participant_info)
+
+            # Apply duplicate detection on validated miners (same model_hash → only earliest block stays valid)
+            if participant_infos:
+                participant_infos = detect_duplicates(participant_infos)
+
+            # Merge duplicate-filtered validated miners with earlier invalid/blocked entries
+            for info in participant_infos:
+                validated_participants.append({
+                    "uid": info.uid,
+                    "miner_hotkey": info.hotkey,
+                    "block": info.block,
+                    "model_name": info.model_name,
+                    "model_revision": info.model_revision,
+                    "model_hash": info.model_hash,
+                    "chute_id": info.chute_id,
+                    "chute_slug": info.chute_slug,
+                    "is_valid": info.is_valid,
+                    "invalid_reason": info.invalid_reason,
+                })
             
             # Update database
             await self.participant_repo.bulk_upsert_miners(validated_participants)
