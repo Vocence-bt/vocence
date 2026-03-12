@@ -3,6 +3,7 @@
 # - Runs the test suite (pytest) on every trigger.
 # - Builds and pushes the Vocence validator image to Docker Hub on push to main/master
 #   only if tests pass. Validators running with Watchtower auto-update.
+# - Ignores docs/ and env.example: changes only to those do not trigger test or build.
 #
 # Setup (maintainers):
 #   1. Create a Docker Hub repository (e.g. vocence102/vocence)
@@ -29,7 +30,6 @@ on:
       - "Dockerfile"
       - ".github/workflows/docker-publish.yml"
       - "docker-compose.yml"
-      - "docs/**"
       - ".github/workflows/**"
   pull_request:
     branches:
@@ -43,7 +43,6 @@ on:
       - "Dockerfile"
       - ".github/workflows/docker-publish.yml"
       - "docker-compose.yml"
-      - "docs/**"
       - ".github/workflows/**"
   workflow_dispatch:
 
