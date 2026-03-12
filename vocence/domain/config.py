@@ -27,6 +27,8 @@ _load_env()
 CHAIN_NETWORK = os.environ.get("CHAIN_NETWORK") or os.environ.get("NETWORK", "finney")
 SUBNET_ID = int(os.environ.get("SUBNET_ID") or os.environ.get("NETUID", "102"))
 CYCLE_LENGTH = int(os.environ.get("CYCLE_LENGTH", "150"))  # Set weights every 150 blocks (~30 minutes)
+# Block % CYCLE_LENGTH == CYCLE_OFFSET_BLOCKS → run (e.g. 15 → blocks 165, 315, 465, ...)
+CYCLE_OFFSET_BLOCKS = int(os.environ.get("CYCLE_OFFSET_BLOCKS", "15"))
 QUERY_TIMEOUT = int(os.environ.get("QUERY_TIMEOUT", "300"))
 
 # Assessment configuration

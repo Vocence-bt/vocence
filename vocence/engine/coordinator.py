@@ -23,6 +23,7 @@ from vocence.domain.config import (
     API_URL,
     SUBNET_ID,
     CYCLE_LENGTH,
+    CYCLE_OFFSET_BLOCKS,
     MIN_EVALS_TO_COMPETE,
     THRESHOLD_MARGIN,
     MAX_EVALS_FOR_SCORING,
@@ -211,17 +212,19 @@ async def cycle_step(subtensor: bt.AsyncSubtensor, wallet: bt.Wallet, storage_cl
         storage_client: Minio client for validator's Hippius S3
     """
     current_block = await subtensor.get_current_block()
-    if current_block % CYCLE_LENGTH != 0:
-        remaining = CYCLE_LENGTH - (current_block % CYCLE_LENGTH)
+    if (current_block % CYCLE_LENGTH) != CYCLE_OFFSET_BLOCKS:
+        remaining = (CYCLE_OFFSET_BLOCKS - (current_block % CYCLE_LENGTH)) % CYCLE_LENGTH
+        if remaining == 0:
+            remaining = CYCLE_LENGTH
         wait_time = 12 * remaining
-        emit_log(f"Block {current_block}: waiting {remaining} blocks (~{wait_time}s) until cycle", "info")
+        emit_log(f"Block {current_block}: waiting {remaining} blocks (~{wait_time}s) until cycle (offset={CYCLE_OFFSET_BLOCKS})", "info")
         await asyncio.sleep(wait_time)
         return
 
-    # Cycle number = which CYCLE_LENGTH-sized window (e.g. every 150 blocks) we're in
-    cycle_num = current_block // CYCLE_LENGTH
+    # Cycle at block % CYCLE_LENGTH == CYCLE_OFFSET_BLOCKS (e.g. 165, 315, 465, ...)
+    cycle_num = (current_block - CYCLE_OFFSET_BLOCKS) // CYCLE_LENGTH
     print_header(f"Vocence Cycle #{cycle_num} (block {current_block})")
-    emit_log(f"Weight-setting cycle (every {CYCLE_LENGTH} blocks)", "info")
+    emit_log(f"Weight-setting cycle (every {CYCLE_LENGTH} blocks, offset {CYCLE_OFFSET_BLOCKS})", "info")
     try:
         await execute_cycle(subtensor, wallet, storage_client, current_block)
     except Exception as e:
@@ -260,7 +263,7 @@ async def main() -> None:
     emit_log(f"Wallet: {COLDKEY_NAME}/{HOTKEY_NAME}", "info")
     emit_log(f"Network: {CHAIN_NETWORK}", "info")
     emit_log(f"Subnet ID: {SUBNET_ID}", "info")
-    emit_log(f"Cycle length: {CYCLE_LENGTH} blocks (~{CYCLE_LENGTH * 12}s)", "info")
+    emit_log(f"Cycle length: {CYCLE_LENGTH} blocks, offset {CYCLE_OFFSET_BLOCKS} (~{CYCLE_LENGTH * 12}s)", "info")
     emit_log(f"Sample slots: every {SAMPLE_SLOT_INTERVAL_BLOCKS} blocks at offset {SAMPLE_SLOT_OFFSET_BLOCKS} (validator_id={VALIDATOR_ID})", "info")
     emit_log(f"Corpus bucket (read): s3://{AUDIO_SOURCE_BUCKET}", "info")
     emit_log(f"Samples bucket (own): s3://{AUDIO_SAMPLES_BUCKET}", "info")
