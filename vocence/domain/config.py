@@ -42,7 +42,7 @@ ASSESSMENT_INTERVAL = int(os.environ.get("ASSESSMENT_INTERVAL", "600"))  # Legac
 VALIDATOR_ID = int(os.environ.get("VALIDATOR_ID", "1"))  # 0–4 for staggered slots; default 1
 SAMPLE_SLOT_INTERVAL_BLOCKS = int(os.environ.get("SAMPLE_SLOT_INTERVAL_BLOCKS", "150"))
 # Derived: block % INTERVAL == this value → run sample round
-SAMPLE_SLOT_OFFSET_BLOCKS = (VALIDATOR_ID % 6) * 1  # 0, 25, 50, 75, 100, 125
+SAMPLE_SLOT_OFFSET_BLOCKS = (VALIDATOR_ID % 6) * 25  # 0, 25, 50, 75, 100, 125
 MIN_EVALS_TO_COMPETE = int(os.environ.get("MIN_EVALS_TO_COMPETE", "40"))  # Miner must have more than 35 evals in the scoring window to be eligible
 THRESHOLD_MARGIN = float(os.environ.get("THRESHOLD_MARGIN", "0.05"))
 # Most recent N evaluations used for scoring (validator S3 + owner metrics). Default 50.
