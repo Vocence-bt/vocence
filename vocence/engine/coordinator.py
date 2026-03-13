@@ -24,6 +24,8 @@ from vocence.domain.config import (
     SUBNET_ID,
     CYCLE_LENGTH,
     CYCLE_OFFSET_BLOCKS,
+    CYCLE_BLOCK_TOLERANCE,
+    SUBTENSOR_TIMEOUT_SEC,
     MIN_EVALS_TO_COMPETE,
     THRESHOLD_MARGIN,
     MAX_EVALS_FOR_SCORING,
@@ -43,6 +45,10 @@ from vocence.domain.entities import ParticipantInfo
 from vocence.adapters.storage import create_corpus_storage_client, create_validator_storage_client
 from vocence.ranking.calculator import calculate_scores_from_samples
 from vocence.pipeline.generation import generate_samples_continuously
+
+
+# Track last cycle we executed so we only run once per cycle when block is in tolerance window
+_last_executed_cycle_block: int | None = None
 
 
 async def fetch_participants_from_api() -> List[ParticipantInfo]:
@@ -71,7 +77,7 @@ async def fetch_participants_from_api() -> List[ParticipantInfo]:
 
 
 async def execute_cycle(
-    subtensor: bt.AsyncSubtensor,
+    subtensor_ref: dict,
     wallet: bt.Wallet,
     storage_client: Minio,
     block: int,
@@ -83,11 +89,12 @@ async def execute_cycle(
     - Sets weights based on own calculations
     
     Args:
-        subtensor: Bittensor async subtensor instance
+        subtensor_ref: Mutable ref containing current AsyncSubtensor (so we can reconnect on timeout)
         wallet: Bittensor wallet for signing transactions
         storage_client: Minio client for validator's Hippius S3
         block: Current block number
     """
+    subtensor = subtensor_ref["client"]
     emit_log(f"[{block}] Fetching participants from API", "info")
     
     try:
@@ -194,9 +201,13 @@ async def execute_cycle(
     leader_rate = get_win_rate(leader)
     emit_log(f"[{block}] Winner: {leader[:8]} win_rate={leader_rate:.1%}", "success")
 
-    # Set weights on chain
+    # Set weights on chain (with timeout so dropped connection doesn't hang forever)
     try:
-        metagraph = await subtensor.metagraph(SUBNET_ID)
+        metagraph = await asyncio.wait_for(subtensor.metagraph(SUBNET_ID), timeout=SUBTENSOR_TIMEOUT_SEC)
+    except asyncio.TimeoutError:
+        emit_log(f"[{block}] Timed out fetching metagraph (>{SUBTENSOR_TIMEOUT_SEC}s), reconnecting subtensor...", "error")
+        await _reconnect_subtensor(subtensor_ref)
+        return
     except Exception as e:
         emit_log(f"[{block}] Failed to fetch metagraph: {e}", "error")
         return
@@ -208,42 +219,83 @@ async def execute_cycle(
             weights.append(1.0 if hotkey == leader else 0.0)
     if uids:
         try:
-            await subtensor.set_weights(wallet=wallet, netuid=SUBNET_ID, uids=uids, weights=weights, wait_for_inclusion=True)
+            await asyncio.wait_for(
+                subtensor.set_weights(wallet=wallet, netuid=SUBNET_ID, uids=uids, weights=weights, wait_for_inclusion=True),
+                timeout=SUBTENSOR_TIMEOUT_SEC,
+            )
             emit_log(f"[{block}] Set weights for {len(uids)} participants (winner takes all)", "success")
+        except asyncio.TimeoutError:
+            emit_log(f"[{block}] Timed out setting weights (>{SUBTENSOR_TIMEOUT_SEC}s), reconnecting subtensor...", "error")
+            await _reconnect_subtensor(subtensor_ref)
         except Exception as e:
             emit_log(f"[{block}] Failed to set weights: {e}", "error")
 
 
-async def cycle_step(subtensor: bt.AsyncSubtensor, wallet: bt.Wallet, storage_client: Minio) -> None:
-    """Wait for cycle boundary and run weight setting.
+async def _reconnect_subtensor(subtensor_ref: dict) -> None:
+    """Replace the subtensor in ref with a new instance (reconnect after drop)."""
+    old = subtensor_ref.get("client")
+    if old is not None:
+        try:
+            if hasattr(old, "close"):
+                close_fn = getattr(old, "close")
+                if asyncio.iscoroutinefunction(close_fn):
+                    await close_fn()
+                else:
+                    close_fn()
+        except Exception:
+            pass
+    subtensor_ref["client"] = bt.AsyncSubtensor(network=CHAIN_NETWORK)
+    emit_log("Reconnected subtensor (new connection)", "info")
+
+
+async def cycle_step(subtensor_ref: dict, wallet: bt.Wallet, storage_client: Minio) -> None:
+    """Wait for cycle boundary (within block tolerance) and run weight setting once per cycle.
     
-    Args:
-        subtensor: Bittensor async subtensor instance
-        wallet: Bittensor wallet for signing transactions
-        storage_client: Minio client for validator's Hippius S3
+    Uses a block range [expected - CYCLE_BLOCK_TOLERANCE, expected + CYCLE_BLOCK_TOLERANCE]
+    so we don't miss the cycle if get_current_block was briefly unavailable. Executes at most
+    once per logical cycle. All subtensor calls are wrapped with SUBTENSOR_TIMEOUT_SEC so a
+    dropped connection doesn't hang forever. On timeout, creates a new AsyncSubtensor so the
+    next attempt uses a fresh connection.
     """
-    current_block = await subtensor.get_current_block()
-    if (current_block % CYCLE_LENGTH) != CYCLE_OFFSET_BLOCKS:
-        remaining = (CYCLE_OFFSET_BLOCKS - (current_block % CYCLE_LENGTH)) % CYCLE_LENGTH
-        if remaining == 0:
-            remaining = CYCLE_LENGTH
-        wait_time = 12 * remaining
-        emit_log(f"Block {current_block}: waiting {remaining} blocks (~{wait_time}s) until cycle (offset={CYCLE_OFFSET_BLOCKS})", "info")
-        await asyncio.sleep(wait_time)
+    global _last_executed_cycle_block
+    subtensor = subtensor_ref["client"]
+    try:
+        current_block = await asyncio.wait_for(subtensor.get_current_block(), timeout=SUBTENSOR_TIMEOUT_SEC)
+    except asyncio.TimeoutError:
+        emit_log(f"get_current_block timed out (>{SUBTENSOR_TIMEOUT_SEC}s), reconnecting subtensor...", "error")
+        await _reconnect_subtensor(subtensor_ref)
+        await asyncio.sleep(12)
+        return
+    except Exception as e:
+        emit_log(f"get_current_block failed: {e}; reconnecting subtensor...", "error")
+        await _reconnect_subtensor(subtensor_ref)
+        await asyncio.sleep(12)
         return
 
-    # Cycle at block % CYCLE_LENGTH == CYCLE_OFFSET_BLOCKS (e.g. 165, 315, 465, ...)
+    # Cycle block for "this" period: the unique cycle_block in [current - tolerance, current + tolerance] if any
+    k = (current_block - CYCLE_OFFSET_BLOCKS) // CYCLE_LENGTH
+    cycle_block = CYCLE_OFFSET_BLOCKS + k * CYCLE_LENGTH
+    in_window = (cycle_block - CYCLE_BLOCK_TOLERANCE <= current_block <= cycle_block + CYCLE_BLOCK_TOLERANCE)
+
+    if not in_window or _last_executed_cycle_block == cycle_block:
+        if not in_window:
+            emit_log(f"Block {current_block}: waiting for cycle window (target {cycle_block} ±{CYCLE_BLOCK_TOLERANCE})", "info")
+        # Re-poll after one block time so we don't hammer the node; or advance past current window
+        await asyncio.sleep(12)
+        return
+
     cycle_num = (current_block - CYCLE_OFFSET_BLOCKS) // CYCLE_LENGTH
-    print_header(f"Vocence Cycle #{cycle_num} (block {current_block})")
+    print_header(f"Vocence Cycle #{cycle_num} (block {current_block}, window {cycle_block} ±{CYCLE_BLOCK_TOLERANCE})")
     emit_log(f"Weight-setting cycle (every {CYCLE_LENGTH} blocks, offset {CYCLE_OFFSET_BLOCKS})", "info")
+    _last_executed_cycle_block = cycle_block
     try:
-        await execute_cycle(subtensor, wallet, storage_client, current_block)
+        await execute_cycle(subtensor_ref, wallet, storage_client, current_block)
     except Exception as e:
         emit_log(f"[{current_block}] Cycle failed ({e}), will retry next cycle", "error")
+        _last_executed_cycle_block = None  # allow retry next time we're in window
         import traceback
         traceback.print_exc()
     else:
-        # Wait at least one block so next cycle_step doesn't re-run for the same block
         await asyncio.sleep(12)
 
 
@@ -263,8 +315,9 @@ async def main() -> None:
     emit_log(f"Using corpus bucket (read) and own samples bucket for scoring: {AUDIO_SAMPLES_BUCKET}", "info")
     
     # Initialize clients (validator: two Hippius credential sets)
+    # Use a ref so we can replace the subtensor on timeout (reconnect)
     emit_log("Initializing clients...", "info")
-    subtensor = bt.AsyncSubtensor(network=CHAIN_NETWORK)
+    subtensor_ref: dict = {"client": bt.AsyncSubtensor(network=CHAIN_NETWORK)}
     wallet = bt.Wallet(name=COLDKEY_NAME, hotkey=HOTKEY_NAME)
     corpus_client = create_corpus_storage_client()
     validator_client = create_validator_storage_client()
@@ -281,10 +334,21 @@ async def main() -> None:
     emit_log(f"Min evals to compete: {MIN_EVALS_TO_COMPETE}", "info")
     emit_log(f"Threshold margin: {THRESHOLD_MARGIN}", "info")
     emit_log(f"Max evals for scoring (recent window): {MAX_EVALS_FOR_SCORING}", "info")
+    emit_log(f"Cycle/slot block tolerance: ±{CYCLE_BLOCK_TOLERANCE}, subtensor timeout: {SUBTENSOR_TIMEOUT_SEC}s", "info")
     
     emit_log("Starting sample generation loop in background...", "start")
+
+    async def get_block_with_timeout() -> int:
+        """Wrap get_current_block with timeout; on timeout reconnect so generator gets fresh connection."""
+        try:
+            return await asyncio.wait_for(subtensor_ref["client"].get_current_block(), timeout=SUBTENSOR_TIMEOUT_SEC)
+        except (asyncio.TimeoutError, Exception):
+            emit_log("get_current_block failed in generator, reconnecting subtensor...", "warn")
+            await _reconnect_subtensor(subtensor_ref)
+            raise
+
     generator_task = asyncio.create_task(
-        generate_samples_continuously(corpus_client, validator_client, openai_client, subtensor.get_current_block)
+        generate_samples_continuously(corpus_client, validator_client, openai_client, get_block_with_timeout)
     )
     
     def handle_generator_exception(task: asyncio.Task) -> None:
@@ -300,7 +364,7 @@ async def main() -> None:
     
     emit_log("Starting weight setting loop...", "start")
     while True:
-        await cycle_step(subtensor, wallet, validator_client)
+        await cycle_step(subtensor_ref, wallet, validator_client)
 
 
 def main_sync() -> None:

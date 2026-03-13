@@ -165,7 +165,8 @@ def start_generator():
     import bittensor as bt
     from openai import AsyncOpenAI
 
-    from vocence.domain.config import OPENAI_AUTH_KEY, CHUTES_AUTH_KEY, CHAIN_NETWORK
+    import asyncio
+    from vocence.domain.config import OPENAI_AUTH_KEY, CHUTES_AUTH_KEY, CHAIN_NETWORK, SUBTENSOR_TIMEOUT_SEC
     from vocence.shared.logging import emit_log, print_header
     from vocence.adapters.storage import create_corpus_storage_client, create_validator_storage_client
     from vocence.pipeline.generation import generate_samples_continuously
@@ -185,8 +186,11 @@ def start_generator():
         validator_client = create_validator_storage_client()
         openai_client = AsyncOpenAI(api_key=OPENAI_AUTH_KEY)
 
+        async def get_block_with_timeout():
+            return await asyncio.wait_for(subtensor.get_current_block(), timeout=SUBTENSOR_TIMEOUT_SEC)
+
         await generate_samples_continuously(
-            corpus_client, validator_client, openai_client, subtensor.get_current_block
+            corpus_client, validator_client, openai_client, get_block_with_timeout
         )
 
     asyncio.run(run_generator())
@@ -208,16 +212,14 @@ def start_validator():
     
     async def run_validator():
         print_header("Vocence Validator (Weight Setter) Starting")
-        
-        subtensor = bt.AsyncSubtensor(network=CHAIN_NETWORK)
+        # Use ref so cycle_step can reconnect on timeout
+        subtensor_ref = {"client": bt.AsyncSubtensor(network=CHAIN_NETWORK)}
         wallet = bt.Wallet(name=COLDKEY_NAME, hotkey=HOTKEY_NAME)
         validator_client = create_validator_storage_client()
-        
         emit_log(f"Wallet: {COLDKEY_NAME}/{HOTKEY_NAME}", "info")
         emit_log(f"Network: {CHAIN_NETWORK}", "info")
-        
         while True:
-            await cycle_step(subtensor, wallet, validator_client)
+            await cycle_step(subtensor_ref, wallet, validator_client)
     
     asyncio.run(run_validator())
 
