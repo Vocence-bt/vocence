@@ -42,6 +42,7 @@ from vocence.domain.config import (
     VALIDATOR_ID,
     SAMPLE_SLOT_INTERVAL_BLOCKS,
     SAMPLE_SLOT_OFFSET_BLOCKS,
+    SAMPLE_SLOT_BLOCK_TOLERANCE,
 )
 from vocence.shared.logging import emit_log, print_header
 from vocence.adapters.storage import ensure_bucket_available, upload_sample_data
@@ -52,6 +53,9 @@ from vocence.domain.entities import ParticipantInfo
 
 # ~1 block every 12s on typical chains; used when waiting for next block
 SECONDS_PER_BLOCK = 12
+
+# Track last sample slot we executed so we only run once per slot when block is in tolerance window
+_last_executed_slot_block: int | None = None
 
 
 async def submit_sample_to_api(
@@ -371,20 +375,35 @@ async def generate_samples_continuously(
     )
     emit_log(f"Using API for valid miners: {API_URL}", "info")
 
+    global _last_executed_slot_block
     round_num = 0
     while True:
-        # Wait until our block slot (e.g. block % 150 == 30 for validator_id 1)
+        # Wait until we're in our block slot window (target ± SAMPLE_SLOT_BLOCK_TOLERANCE); execute at most once per slot
         while True:
-            block = await get_current_block()
-            if block % SAMPLE_SLOT_INTERVAL_BLOCKS == SAMPLE_SLOT_OFFSET_BLOCKS:
+            try:
+                block = await get_current_block()
+            except asyncio.TimeoutError:
+                emit_log("get_current_block timed out (subtensor connection?), retrying in 12s", "warn")
+                await asyncio.sleep(SECONDS_PER_BLOCK)
+                continue
+            except Exception as e:
+                emit_log(f"get_current_block failed: {e}, retrying in 12s", "warn")
+                await asyncio.sleep(SECONDS_PER_BLOCK)
+                continue
+            k = (block - SAMPLE_SLOT_OFFSET_BLOCKS) // SAMPLE_SLOT_INTERVAL_BLOCKS
+            slot_block = SAMPLE_SLOT_OFFSET_BLOCKS + k * SAMPLE_SLOT_INTERVAL_BLOCKS
+            in_window = (slot_block - SAMPLE_SLOT_BLOCK_TOLERANCE <= block <= slot_block + SAMPLE_SLOT_BLOCK_TOLERANCE)
+            if in_window and _last_executed_slot_block != slot_block:
                 break
-            remaining = (SAMPLE_SLOT_OFFSET_BLOCKS - block % SAMPLE_SLOT_INTERVAL_BLOCKS) % SAMPLE_SLOT_INTERVAL_BLOCKS
-            if remaining == 0:
-                remaining = SAMPLE_SLOT_INTERVAL_BLOCKS
-            wait_s = remaining * SECONDS_PER_BLOCK
-            emit_log(f"Block {block}: waiting {remaining} blocks (~{wait_s}s) until sample slot (offset={SAMPLE_SLOT_OFFSET_BLOCKS})", "info")
-            await asyncio.sleep(wait_s)
+            if not in_window:
+                remaining = (SAMPLE_SLOT_OFFSET_BLOCKS - block % SAMPLE_SLOT_INTERVAL_BLOCKS) % SAMPLE_SLOT_INTERVAL_BLOCKS
+                if remaining == 0:
+                    remaining = SAMPLE_SLOT_INTERVAL_BLOCKS
+                wait_s = remaining * SECONDS_PER_BLOCK
+                emit_log(f"Block {block}: waiting for sample slot window (target {slot_block} ±{SAMPLE_SLOT_BLOCK_TOLERANCE}), ~{int(wait_s)}s", "info")
+            await asyncio.sleep(SECONDS_PER_BLOCK)
 
+        _last_executed_slot_block = slot_block
         round_num += 1
         round_start = time.time()
         try:

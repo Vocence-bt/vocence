@@ -29,6 +29,11 @@ SUBNET_ID = int(os.environ.get("SUBNET_ID") or os.environ.get("NETUID", "102"))
 CYCLE_LENGTH = int(os.environ.get("CYCLE_LENGTH", "150"))  # Set weights every 150 blocks (~30 minutes)
 # Block % CYCLE_LENGTH == CYCLE_OFFSET_BLOCKS → run (e.g. 15 → blocks 165, 315, 465, ...)
 CYCLE_OFFSET_BLOCKS = int(os.environ.get("CYCLE_OFFSET_BLOCKS", "15"))
+# Allow execution when block is within ±N of the exact cycle/slot block (avoids missing due to transient failures)
+CYCLE_BLOCK_TOLERANCE = int(os.environ.get("CYCLE_BLOCK_TOLERANCE", "2"))
+SAMPLE_SLOT_BLOCK_TOLERANCE = int(os.environ.get("SAMPLE_SLOT_BLOCK_TOLERANCE", "2"))
+# Timeout for subtensor RPC (get_current_block, metagraph, set_weights); prevents hanging forever if connection drops
+SUBTENSOR_TIMEOUT_SEC = int(os.environ.get("SUBTENSOR_TIMEOUT_SEC", "60"))
 QUERY_TIMEOUT = int(os.environ.get("QUERY_TIMEOUT", "300"))
 
 # Assessment configuration
@@ -37,7 +42,7 @@ ASSESSMENT_INTERVAL = int(os.environ.get("ASSESSMENT_INTERVAL", "600"))  # Legac
 VALIDATOR_ID = int(os.environ.get("VALIDATOR_ID", "1"))  # 0–4 for staggered slots; default 1
 SAMPLE_SLOT_INTERVAL_BLOCKS = int(os.environ.get("SAMPLE_SLOT_INTERVAL_BLOCKS", "150"))
 # Derived: block % INTERVAL == this value → run sample round
-SAMPLE_SLOT_OFFSET_BLOCKS = (VALIDATOR_ID % 6) * 25  # 0, 25, 50, 75, 100, 125
+SAMPLE_SLOT_OFFSET_BLOCKS = (VALIDATOR_ID % 6) * 1  # 0, 25, 50, 75, 100, 125
 MIN_EVALS_TO_COMPETE = int(os.environ.get("MIN_EVALS_TO_COMPETE", "40"))  # Miner must have more than 35 evals in the scoring window to be eligible
 THRESHOLD_MARGIN = float(os.environ.get("THRESHOLD_MARGIN", "0.05"))
 # Most recent N evaluations used for scoring (validator S3 + owner metrics). Default 50.
